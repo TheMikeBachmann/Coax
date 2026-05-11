@@ -287,7 +287,7 @@ export default function Guide() {
                   className="shrink-0 flex items-center gap-2 px-2 py-1 border-r border-gray-700 bg-gray-850"
                 >
                   {ch.icon && (
-                    <img src={ch.icon} alt="" className="w-6 h-6 rounded object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    <img src={ch.icon} alt="" className="w-6 h-6 rounded object-contain shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   )}
                   {ch.loading
                     ? <div className="h-3 bg-gray-700 rounded animate-pulse w-16" />

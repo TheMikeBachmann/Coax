@@ -43,9 +43,9 @@ export interface FillerCollection {
 }
 
 export interface TranscodingSettings {
-  targetResolution: string
+  targetResolution?: string
   videoBitrate?: number
-  videoBufferSize?: number
+  videoBufSize?: number
 }
 
 export interface OnDemandSettings {
@@ -243,13 +243,14 @@ export type Tab = 'xmltv' | 'ffmpeg' | 'plex' | 'hdhr'
 
 export const RESOLUTION_OPTIONS = [
   { value: '', label: 'Same as source' },
-  { value: '420x420', label: '420x420' },
-  { value: '480x270', label: '480x270 (16:9)' },
-  { value: '576x320', label: '576x320 (16:9)' },
-  { value: '640x360', label: '640x360 (16:9)' },
-  { value: '720x404', label: '720x404 (16:9)' },
-  { value: '1024x576', label: '1024x576 (16:9)' },
-  { value: '1280x720', label: '1280x720 (HD)' },
-  { value: '1920x1080', label: '1920x1080 (FHD)' },
-  { value: '3840x2160', label: '3840x2160 (4K)' },
+  { value: '320x240', label: '320x240 (SD 4:3 low)' },
+  { value: '640x480', label: '640x480 (SD 4:3)' },
+  { value: '704x480', label: '704x480 (NTSC 4:3)' },
+  { value: '720x480', label: '720x480 (DVD 4:3)' },
+  { value: '768x576', label: '768x576 (PAL 4:3)' },
+  { value: '480x270', label: '480x270 (SD 16:9)' },
+  { value: '640x360', label: '640x360 (SD 16:9)' },
+  { value: '854x480', label: '854x480 (WVGA 16:9)' },
+  { value: '1280x720', label: '1280x720 (HD 16:9)' },
+  { value: '1920x1080', label: '1920x1080 (FHD 16:9)' },
 ]

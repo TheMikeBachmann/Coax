@@ -64,8 +64,8 @@ export const dizquetv = {
   getChannelNumbers: () => api<number[]>('/api/channelNumbers'),
   addChannel: (ch: Channel) => api<Channel>('/api/channel', json('POST', ch)),
   updateChannel: (ch: Channel) => api<Channel>('/api/channel', json('PUT', ch)),
-  removeChannel: (ch: { number: number }) => api<unknown>('/api/channel', json('DELETE', ch)),
-  uploadImage: (form: FormData) =>
+  removeChannel: (ch: { number: number }) => apiVoid('/api/channel', json('DELETE', ch)),
+  uploadImage: (form: FormData): Promise<{ status: boolean; data?: { fileUrl: string } }> =>
     fetch('/api/upload/image', { method: 'POST', body: form }).then(r => r.json()),
   addChannelWatermark: (form: FormData) =>
     fetch('/api/channel/watermark', { method: 'POST', body: form }).then(r => r.json()),
@@ -73,17 +73,17 @@ export const dizquetv = {
   // Filler
   getAllFillersInfo: () => api<FillerInfo[]>('/api/fillers'),
   getFiller: (id: string) => api<Filler>(`/api/filler/${id}`),
-  updateFiller: (id: string, f: Filler) => api<Filler>(`/api/filler/${id}`, json('POST', f)),
+  updateFiller: (id: string, f: Filler) => apiVoid(`/api/filler/${id}`, json('POST', f)),
   createFiller: (f: Partial<Filler>) => api<Filler>('/api/filler', json('PUT', f)),
-  deleteFiller: (id: string) => api<unknown>(`/api/filler/${id}`, json('DELETE', {})),
+  deleteFiller: (id: string) => apiVoid(`/api/filler/${id}`, json('DELETE', {})),
   getChannelsUsingFiller: (id: string) => api<ChannelDescription[]>(`/api/filler/${id}/channels`),
 
   // Custom shows
   getAllShowsInfo: () => api<CustomShowInfo[]>('/api/shows'),
   getShow: (id: string) => api<CustomShow>(`/api/show/${id}`),
-  updateShow: (id: string, s: CustomShow) => api<CustomShow>(`/api/show/${id}`, json('POST', s)),
+  updateShow: (id: string, s: CustomShow) => apiVoid(`/api/show/${id}`, json('POST', s)),
   createShow: (s: Partial<CustomShow>) => api<CustomShow>('/api/show', json('PUT', s)),
-  deleteShow: (id: string) => api<unknown>(`/api/show/${id}`, json('DELETE', {})),
+  deleteShow: (id: string) => apiVoid(`/api/show/${id}`, json('DELETE', {})),
 
   // Guide
   getGuideStatus: () => api<GuideStatus>('/api/guide/status'),

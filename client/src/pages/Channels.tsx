@@ -93,7 +93,7 @@ export default function Channels() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       {ch.icon && (
-                        <img src={ch.icon} alt="" className="w-8 h-8 rounded object-cover shrink-0"
+                        <img src={ch.icon} alt="" className="w-8 h-8 rounded object-contain shrink-0"
                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                       )}
                       <span className="font-medium text-gray-100">{ch.name}</span>

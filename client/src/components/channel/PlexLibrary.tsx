@@ -20,7 +20,7 @@ interface NavLevel {
   sectionType?: string // 'show' | 'movie' | 'artist'
 }
 
-const DRILLABLE = new Set(['show', 'season', 'artist', 'album'])
+const DRILLABLE = new Set(['show', 'season', 'artist', 'album', 'collection'])
 const LEAF_TYPES = new Set(['episode', 'movie', 'track'])
 
 function msToTime(ms: number) {
@@ -169,6 +169,20 @@ export default function PlexLibrary({ onAdd, onClose }: Props) {
       for (const season of seasons) {
         const eps = await plexApi.fetchItems(server, `/library/metadata/${season.ratingKey}/children`)
         all.push(...eps)
+      }
+      return all
+    }
+    if (meta.type === 'collection') {
+      const children = await plexApi.fetchItems(server, `/library/metadata/${meta.ratingKey}/children`)
+      const all: PlexMeta[] = []
+      for (const child of children) {
+        if (LEAF_TYPES.has(child.type)) {
+          all.push(child)
+        } else {
+          // collection of shows — expand each show's episodes
+          const leaves = await expandToLeaves(server, child)
+          all.push(...leaves)
+        }
       }
       return all
     }
@@ -334,7 +348,7 @@ export default function PlexLibrary({ onAdd, onClose }: Props) {
                       <button
                         onClick={e => { e.stopPropagation(); drillInto(meta) }}
                         className="p-1.5 hover:bg-gray-600 rounded shrink-0 text-gray-400 hover:text-white"
-                        title={`Browse ${meta.type === 'show' ? 'seasons' : 'episodes'}`}>
+                        title={`Browse ${meta.type === 'show' ? 'seasons' : meta.type === 'collection' ? 'contents' : 'episodes'}`}>
                         <ChevronsRight size={14} />
                       </button>
                     )}

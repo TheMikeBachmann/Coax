@@ -8,7 +8,6 @@ import CustomShows from './pages/CustomShows'
 import Settings from './pages/Settings'
 import Player from './pages/Player'
 import Version from './pages/Version'
-import Library from './pages/Library'
 
 export default function App() {
   return (
@@ -22,7 +21,6 @@ export default function App() {
             <Route path="/custom-shows" element={<CustomShows />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/player" element={<Player />} />
-            <Route path="/library" element={<Library />} />
             <Route path="/version" element={<Version />} />
             <Route path="*" element={<Navigate to="/guide" replace />} />
           </Route>

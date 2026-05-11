@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Tv, List, Film, Star, Settings, Play, Info, Library } from 'lucide-react'
+import { Tv, List, Film, Star, Settings, Play, Info } from 'lucide-react'
 
 const navItems = [
   { to: '/guide', label: 'Guide', icon: Tv },
@@ -8,7 +8,6 @@ const navItems = [
   { to: '/custom-shows', label: 'Custom Shows', icon: Star },
   { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/player', label: 'Player', icon: Play },
-  { to: '/library', label: 'Library', icon: Library },
   { to: '/version', label: 'Version', icon: Info },
 ]
 

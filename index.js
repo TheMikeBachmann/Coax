@@ -13,6 +13,7 @@ const i18nextBackend = require('i18next-fs-backend/cjs');
 const api = require('./src/api')
 const dbMigration = require('./src/database-migration');
 const video = require('./src/video')
+const guideChannel = require('./src/guide-channel')
 const HDHR = require('./src/hdhr')
 const FileCacheService = require('./src/services/file-cache-service');
 const CacheImageService = require('./src/services/cache-image-service');
@@ -75,6 +76,9 @@ if (!fs.existsSync(process.env.DATABASE)) {
 
 if(!fs.existsSync(path.join(process.env.DATABASE, 'images'))) {
     fs.mkdirSync(path.join(process.env.DATABASE, 'images'))
+}
+if(!fs.existsSync(path.join(process.env.DATABASE, 'images', 'uploads'))) {
+    fs.mkdirSync(path.join(process.env.DATABASE, 'images', 'uploads'))
 }
 if(!fs.existsSync(path.join(process.env.DATABASE, 'channels'))) {
     fs.mkdirSync(path.join(process.env.DATABASE, 'channels'))
@@ -295,6 +299,7 @@ app.use('/' + fontAwesome, express.static(path.join(process.env.DATABASE, fontAw
 app.use('/' + bootstrap, express.static(path.join(process.env.DATABASE, bootstrap)))
 
 app.use(video.router( channelService, fillerDB, db, programmingService, activeChannelService, programPlayTimeDB  ))
+app.get('/guide-channel', guideChannel(channelService, db, process.env.PORT))
 app.use(hdhr.router)
 
 // SPA fallback — serve index.html for any non-API, non-asset route

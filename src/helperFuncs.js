@@ -220,6 +220,7 @@ function pickRandomWithMaxDuration(programPlayTime, channel, fillers, maxDuratio
 
       for (let i = 0; i < list.length; i++) {
         let clip = list[i];
+        if (!clip.serverKey || clip.duration <= 0) continue;
         // a few extra milliseconds won't hurt anyone, would it? dun dun dun
         if (clip.duration <= maxDuration + SLACK ) {
             let t1 = channelCache.getProgramLastPlayTime(programPlayTime, channel.number, clip );

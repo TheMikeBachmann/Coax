@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent,
 } from '@dnd-kit/core'
@@ -7,7 +7,15 @@ import {
   useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { X, Plus, Trash2, GripVertical, Shuffle, Copy, Tv, Clock, Sliders, Settings, Film, Tv2 } from 'lucide-react'
+import { X, Plus, Trash2, GripVertical, Shuffle, Copy, Tv, Clock, Sliders, Settings, Film, Tv2, AlignCenter, Upload, Loader2 } from 'lucide-react'
+
+const ALIGNMENT_OPTIONS = [
+  { value: 0, label: 'Off' },
+  { value: 5 * 60 * 1000, label: '5 min' },
+  { value: 15 * 60 * 1000, label: '15 min' },
+  { value: 30 * 60 * 1000, label: '30 min' },
+  { value: 60 * 60 * 1000, label: '1 hour' },
+]
 import { useToast } from '../Toast'
 import PlexLibrary from './PlexLibrary'
 import TimeSlotsEditor from './TimeSlotsEditor'
@@ -122,6 +130,69 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
   const [showLibrary, setShowLibrary] = useState(false)
   const [showTimeSlots, setShowTimeSlots] = useState(false)
   const [showRandomSlots, setShowRandomSlots] = useState(false)
+  const [padBoundary, setPadBoundary] = useState(0)
+  const [uploadingIcon, setUploadingIcon] = useState(false)
+  const iconInputRef = useRef<HTMLInputElement>(null)
+
+  const trimTransparentBorders = (file: File): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        const canvas = document.createElement('canvas')
+        canvas.width = img.width
+        canvas.height = img.height
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, 0, 0)
+        const { data, width, height } = ctx.getImageData(0, 0, img.width, img.height)
+
+        let top = height, bottom = 0, left = width, right = 0
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const alpha = data[(y * width + x) * 4 + 3]
+            if (alpha > 10) {
+              if (y < top) top = y
+              if (y > bottom) bottom = y
+              if (x < left) left = x
+              if (x > right) right = x
+            }
+          }
+        }
+
+        if (top > bottom || left > right) {
+          // fully transparent — upload as-is
+          canvas.toBlob(b => resolve(b ?? file), file.type)
+          return
+        }
+
+        const trimmed = document.createElement('canvas')
+        trimmed.width = right - left + 1
+        trimmed.height = bottom - top + 1
+        trimmed.getContext('2d')!.drawImage(canvas, left, top, trimmed.width, trimmed.height, 0, 0, trimmed.width, trimmed.height)
+        trimmed.toBlob(b => resolve(b ?? file), file.type)
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
+      img.src = url
+    })
+  }
+
+  const uploadIcon = async (file: File) => {
+    setUploadingIcon(true)
+    try {
+      const isPng = file.type === 'image/png'
+      const blob = isPng ? await trimTransparentBorders(file) : file
+      const uploadFile = new File([blob], file.name, { type: file.type })
+      const form = new FormData()
+      form.append('image', uploadFile)
+      const res = await dizquetv.uploadImage(form)
+      if (res?.data?.fileUrl) update({ icon: res.data.fileUrl })
+      else addToast('Upload failed', 'error')
+    } catch {
+      addToast('Upload failed', 'error')
+    }
+    setUploadingIcon(false)
+  }
   const [fillerInfos, setFillerInfos] = useState<FillerInfo[]>([])
   const [fillerLoaded, setFillerLoaded] = useState(false)
 
@@ -163,6 +234,26 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
       seen.add(key)
       return true
     })})
+  }
+
+  const applyPadding = () => {
+    if (!padBoundary) return
+    const channelStart = new Date(ch.startTime).getTime()
+    let elapsed = 0
+    const result: Program[] = []
+    for (const prog of ch.programs) {
+      if (prog.isOffline && prog.flex) continue // strip existing flex pads
+      result.push(prog)
+      elapsed += prog.duration
+      const absoluteEnd = channelStart + elapsed
+      const rem = absoluteEnd % padBoundary
+      if (rem > 0) {
+        const flexMs = padBoundary - rem
+        result.push({ isOffline: true, flex: true, duration: flexMs })
+        elapsed += flexMs
+      }
+    }
+    update({ programs: result })
   }
 
   const addPrograms = useCallback((programs: Program[]) => {
@@ -253,6 +344,23 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
                   <button onClick={removeDuplicates} className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-sm">
                     <Copy size={14} /> Deduplicate
                   </button>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={padBoundary}
+                      onChange={e => setPadBoundary(Number(e.target.value))}
+                      className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1.5 text-sm"
+                    >
+                      {ALIGNMENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <button
+                      onClick={applyPadding}
+                      disabled={!padBoundary}
+                      title="Insert flex padding so each program starts on the selected time boundary"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <AlignCenter size={14} /> Pad
+                    </button>
+                  </div>
                   <div className="ml-auto text-xs text-gray-400">
                     {ch.programs.length} items · {msToHMS(totalDuration)}
                   </div>
@@ -418,10 +526,36 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
                     className="w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Icon URL</label>
-                  <input value={ch.icon} onChange={e => update({ icon: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-2 text-sm" />
-                  {ch.icon && <img src={ch.icon} alt="" className="mt-2 h-12 rounded object-contain bg-gray-700 p-1" />}
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Channel Icon</label>
+                  <div className="flex gap-3 items-start">
+                    {ch.icon
+                      ? <img src={ch.icon} alt="" className="h-16 w-16 rounded object-contain bg-gray-700 p-1 shrink-0" />
+                      : <div className="h-16 w-16 rounded bg-gray-700 flex items-center justify-center shrink-0 text-gray-600"><Tv size={24} /></div>
+                    }
+                    <div className="flex-1 space-y-2">
+                      <input
+                        ref={iconInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadIcon(f) }}
+                      />
+                      <button
+                        onClick={() => iconInputRef.current?.click()}
+                        disabled={uploadingIcon}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-sm disabled:opacity-50"
+                      >
+                        {uploadingIcon ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                        {uploadingIcon ? 'Uploading…' : 'Upload image'}
+                      </button>
+                      <input
+                        value={ch.icon}
+                        onChange={e => update({ icon: e.target.value })}
+                        placeholder="Or paste a URL"
+                        className="w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-1.5 text-sm text-gray-400"
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1">Start Time</label>
@@ -433,14 +567,62 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
 
             {/* Transcoding tab */}
             {tab === 'transcoding' && (
-              <div className="p-6 space-y-4 max-w-lg">
+              <div className="p-6 space-y-5 max-w-lg">
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1">Target Resolution</label>
                   <select value={ch.transcoding?.targetResolution ?? ''} onChange={e => update({ transcoding: { ...ch.transcoding, targetResolution: e.target.value } })}
                     className="w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-2 text-sm">
                     {RESOLUTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">Overrides global FFmpeg resolution for this channel</p>
+                  <p className="text-xs text-gray-500 mt-1">Overrides global FFmpeg resolution for this channel. Black bars are added to preserve aspect ratio.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Video Bitrate (kbps)</label>
+                    <input
+                      type="number" min={0} step={100}
+                      value={ch.transcoding?.videoBitrate ?? 0}
+                      onChange={e => update({ transcoding: { ...ch.transcoding, videoBitrate: Number(e.target.value) } })}
+                      className="w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-2 text-sm"
+                      placeholder="0 = global default"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">0 = use global default. SD 4:3 → try 1000–2000.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Video Buffer (kbps)</label>
+                    <input
+                      type="number" min={0} step={100}
+                      value={ch.transcoding?.videoBufSize ?? 0}
+                      onChange={e => update({ transcoding: { ...ch.transcoding, videoBufSize: Number(e.target.value) } })}
+                      className="w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-2 text-sm"
+                      placeholder="0 = global default"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">0 = use global default. Typically 2× bitrate.</p>
+                  </div>
+                </div>
+                <div className="border-t border-gray-700 pt-4 space-y-2">
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">SD 4:3 quick presets</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: 'NTSC SD', res: '704x480', bitrate: 2000, buf: 4000 },
+                      { label: 'DVD SD', res: '720x480', bitrate: 3000, buf: 6000 },
+                      { label: 'Low bandwidth', res: '640x480', bitrate: 1000, buf: 2000 },
+                    ].map(p => (
+                      <button
+                        key={p.label}
+                        onClick={() => update({ transcoding: { ...ch.transcoding, targetResolution: p.res, videoBitrate: p.bitrate, videoBufSize: p.buf } })}
+                        className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => update({ transcoding: { targetResolution: '', videoBitrate: 0, videoBufSize: 0 } })}
+                      className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-gray-400"
+                    >
+                      Clear (use global)
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

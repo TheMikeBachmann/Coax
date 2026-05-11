@@ -104,6 +104,21 @@ export const plexApi = {
         type: dir.type,
         genres,
       })
+      // Add a Collections entry for this library section if any exist
+      try {
+        const colRes = await plexFetch<{ MediaContainer: { Metadata?: unknown[]; size?: number } }>(
+          `${server.uri}/library/sections/${dir.key}/collections`,
+          { 'X-Plex-Token': server.accessToken }
+        )
+        if ((colRes.MediaContainer?.size ?? 0) > 0) {
+          sections.push({
+            title: `${dir.title} — Collections`,
+            key: `/library/sections/${dir.key}/collections`,
+            icon: `${server.uri}${dir.composite}?X-Plex-Token=${server.accessToken}`,
+            type: 'collections',
+          })
+        }
+      } catch { /* ignore */ }
     }
     return sections
   },
