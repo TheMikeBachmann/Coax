@@ -1,5 +1,5 @@
 
-const db = require('diskdb')
+const db = require('./src/json-db')
 const fs = require('fs')
 const unzip = require('unzipper')
 const path = require('path')
@@ -138,7 +138,6 @@ i18next
         initImmediate: false,
         backend: {
             loadPath: path.join(__dirname, '/locales/server/{{lng}}.json'),
-            addPath: path.join(__dirname, '/locales/server/{{lng}}.json')
         },
         lng: 'en',
         fallbackLng: 'en',
@@ -297,6 +296,12 @@ app.use('/' + bootstrap, express.static(path.join(process.env.DATABASE, bootstra
 
 app.use(video.router( channelService, fillerDB, db, programmingService, activeChannelService, programPlayTimeDB  ))
 app.use(hdhr.router)
+
+// SPA fallback — serve index.html for any non-API, non-asset route
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'web', 'public', 'index.html'))
+})
+
 app.listen(process.env.PORT, () => {
     console.log(`HTTP server running on port: http://*:${process.env.PORT}`)
     let hdhrSettings = db['hdhr-settings'].find()[0]

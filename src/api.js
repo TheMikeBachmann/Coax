@@ -221,12 +221,18 @@ function api(db, channelService, fillerDB, customShowDB, xmltvInterval,  guideSe
     // Channels
     router.get('/api/channels', async (req, res) => {
       try {
-        let channels = await channelService.getAllChannelNumbers();
-        channels.sort((a, b) => { return a.number < b.number ? -1 : 1 })
-        res.send(channels)
+        let numbers = await channelService.getAllChannelNumbers();
+        numbers.sort((a, b) => a < b ? -1 : 1);
+        const channels = await Promise.all(numbers.map(async (n) => {
+          const ch = await channelService.getChannel(n);
+          if (!ch) return null;
+          const { programs, ...rest } = ch;
+          return { ...rest, duration: (programs || []).reduce((s, p) => s + (p.duration || 0), 0) };
+        }));
+        res.send(channels.filter(Boolean));
       } catch(err) {
         console.error(err);
-       res.status(500).send("error");
+        res.status(500).send("error");
       }
     })
     router.get('/api/channel/:number', async (req, res) => {
@@ -554,7 +560,8 @@ function api(db, channelService, fillerDB, customShowDB, xmltvInterval,  guideSe
             "level" : "info"
           }
         );
-        res.send(result.ffmpeg)
+        res.removeHeader('ETag');
+        res.status(200).json(result.ffmpeg)
       } catch(err) {
         console.error(err);
        res.status(500).send("error");

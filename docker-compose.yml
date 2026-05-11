@@ -1,0 +1,12 @@
+services:
+  dizquetv:
+    build: .
+    container_name: dizquetv
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - dizquetv-data:/.dizquetv
+
+volumes:
+  dizquetv-data:

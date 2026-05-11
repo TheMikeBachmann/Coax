@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
 const fs = require('fs');
 
+
 class PlexTranscoder {
     constructor(clientId, server, settings, channel, lineupItem) {
         this.session = uuidv4()
@@ -16,7 +17,7 @@ class PlexTranscoder {
         this.log("Plex transcoder initiated")
         this.log("Debug logging enabled")
 
-        this.key = lineupItem.key
+        this.key = (lineupItem.key || '').replace(/\/children$/, '')
         this.metadataPath = `${server.uri}${lineupItem.key}?X-Plex-Token=${server.accessToken}`
         this.plexFile = `${server.uri}${lineupItem.plexFile}?X-Plex-Token=${server.accessToken}`
         if (typeof(lineupItem.file)!=='undefined') {
@@ -326,8 +327,12 @@ lang=en`
     async getDecisionUnmanaged(directPlay) {
         let url = `${this.server.uri}/video/:/transcode/universal/decision?${this.transcodingArgs}`;
         let res = await axios.get(url, {
-            headers: { Accept: 'application/json' }
+            headers: { Accept: 'application/json' },
+            validateStatus: null,  // don't throw on non-2xx
         })
+        if (res.status !== 200) {
+            throw new Error(`Plex decision returned ${res.status}`);
+        }
             this.decisionJson = res.data;
 
             this.log("Received transcode decision:");
@@ -384,7 +389,7 @@ lang=en`
         try {
             await this.getDecisionUnmanaged(directPlay);
         } catch (err) {
-            console.error(err);
+            console.error(`Plex decision failed for ${this.key}: ${err.message}`);
         }
     }
 

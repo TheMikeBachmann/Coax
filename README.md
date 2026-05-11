@@ -1,89 +1,80 @@
-# dizqueTV 1.5.5
-![Discord](https://img.shields.io/discord/711313431457693727?logo=discord&logoColor=fff&style=flat-square) ![GitHub top language](https://img.shields.io/github/languages/top/vexorian/dizquetv?logo=github&style=flat-square) ![Docker Pulls](https://img.shields.io/docker/pulls/vexorian/dizquetv?logo=docker&logoColor=fff&style=flat-square)
+# dizqueTV
 
 Create live TV channel streams from media on your Plex servers.
 
-**dizqueTV** ( *dis·keˈtiːˈvi* )  is a fork of the project previously-known as [pseudotv-plex](https://gitlab.com/DEFENDORe/pseudotv-plex) or [pseudotv](https://github.com/DEFENDORe/pseudotv). New repository because of lack of activity from the main repository and the name change is because projects with the old name already existed and were created long before this approach and it was causing confusion. You can migrate from pseudoTV 0.0.51 to dizqueTV by renaming the .pseudotv folder to .dizquetv and running the new executable (or doing a similar trick with the volumes used by the docker containers).
+This is a fork of [vexorian/dizquetv](https://github.com/vexorian/dizquetv) with the frontend rewritten in React + TypeScript.
 
-<img src="https://raw.githubusercontent.com/vexorian/dizquetv/main/resources/dizquetv.png" width="200">
+## What's different in this fork
 
-Configure your channels, programs, commercials and settings using the dizqueTV web UI.
+- **React frontend** — the original AngularJS UI has been replaced with React 18 + TypeScript + Vite + Tailwind CSS
+- **In-browser player** — preview any channel directly in the browser without an external player
+- **Hierarchical Plex library browser** — browse by show → season → episode; add an entire show or season with one click
+- **H.264 output by default** — configurable video/audio encoder in FFmpeg settings (use `libx264` + `aac` for browser playback, `mpeg2video` + `ac3` for HDHR/Plex DVR)
+- **CORS headers on video endpoint** — allows direct browser streaming without proxy buffering
 
-Access your channels by adding the spoofed dizqueTV HDHomerun tuner to Plex, Jellyfin or emby or utilize the M3U Url with any 3rd party IPTV player app.
+## Getting started
 
-EPG (Guide Information) data is stored to `.dizquetv/xmltv.xml`
+### Requirements
+
+- Node.js 18+
+- ffmpeg (must be accessible from your PATH or configured in Settings → FFmpeg)
+- A Plex Media Server with content
+
+### Run
+
+```bash
+cd dizquetv
+npm install
+npm run build        # build the React client into web/public
+node index.js
+```
+
+Then open `http://localhost:8000` in your browser.
+
+### Development (hot reload)
+
+Run the backend and frontend dev server separately:
+
+```bash
+# Terminal 1 — backend
+node index.js
+
+# Terminal 2 — frontend (proxies /api and /video to :8000)
+cd client
+npm install
+npm run dev
+```
+
+The dev UI will be at `http://localhost:5173`.
+
+### First-time setup
+
+1. **Settings → Plex Servers** — add your Plex server (use the OAuth login button)
+2. **Settings → FFmpeg** — set the path to your ffmpeg binary; set Video Encoder to `H.264 — libx264` and Audio Encoder to `AAC — aac` for browser playback
+3. **Channels** — create a channel, add content from your Plex library
+4. **Player** — select your channel and press Play to test in-browser
 
 ## Features
-- A wide variety of options for the clients where you can play the TV channels, since it both spoofs a HDHR tuner and a IPTV channel list.
-- Ease of setup for xteve and Plex playback by mocking a HDHR server.
-- Configure your channels once, and play them just the same in any of the other devices.
-- Customize your channels and what they play. Make them display their logo while they play. Play filler content (&quot;commercials&quot;, music videos, prerolls, channel branding videos) at specific times to pad time.
-- Docker image and prepackage binaries for Windows, Linux and Mac.
-- Supports nvidia for hardware encoding, including in docker.
-- Select media (desired programs and commercials) across multiple Plex servers
-- Includes a WEB TV Guide where you can even play channels in your desktop by using your local media player.
-- Subtitle support.
-- Auto deinterlace any Plex media not marked `"scanType": "progressive"`
-- Can be configured to completely force Direct play, if you are ready for the caveats.
-- It's up to you if the channels have a life of their own and act as if they continued playing when you weren't watching them or if you want "on-demand" channels that stop their schedules while not being watched.
+
+- Spoofs an HDHomerun tuner and IPTV channel list for Plex, Jellyfin, and Emby
+- EPG/XMLTV guide data
+- Filler content (commercials, bumpers, music videos) on a schedule
+- Custom shows (curated playlists treated as a show)
+- Per-channel watermark/icon overlay
+- Time-slot and random-slot scheduling
+- Subtitle support
+- Auto-deinterlace for interlaced content
+- Direct play or ffmpeg transcoding (configurable per channel)
+- Hardware encoding support (VideoToolbox on macOS, NVENC on NVIDIA)
 
 ## Limitations
 
-- If you want to play the TV channels in Plex using the spoofed HDHR, Plex pass is required.
-- dizqueTV does not currently watch your Plex server for media updates/changes. You must manually remove and re-add your programs for any changes to take effect. Same goes for Plex server changes (changing IP, port, etc).. You&apos;ll have to update the server settings manually in that case.
-- Most players (including Plex) will break after switching episodes if video / audio format is too different. dizqueTV can  be configured to use ffmpeg transcoding to prevent this, but that costs resources.
-- If you configure Plex DVR, it will always be recording and transcoding the channel&apos;s contents.
-- In its current state, dizquetv is intended for private use only and you should be discouraged from running dizqueTV in any capacity where other users can have access to dizqueTV's ports. You can use Plex's iptv player feature to share dizqueTV streams or you'll have to come up with some work arounds to make sure that streams can be played without ever actually exposing the dizquetv port to the outside world. Please use it with care, consider exposing dizqueTV's ports as something only advanced users who know what they are doing should try.
-
-## Releases
-
-- https://github.com/vexorian/dizquetv/releases
-
-## Wiki
-
-- For setup instructions, check [the wiki](https://github.com/vexorian/dizquetv/wiki)
-
-
-## App Preview
-<img src="https://raw.githubusercontent.com/vexorian/dizquetv/main/docs/channels.png" width="500">
-<br/>
-<img src="https://raw.githubusercontent.com/vexorian/dizquetv/main/docs/channel-config.png" width="500">
-<br/>
-<img src="https://raw.githubusercontent.com/vexorian/dizquetv/main/docs/plex-guide.png" width="500">
-<br/>
-<img src="https://raw.githubusercontent.com/vexorian/dizquetv/main/docs/plex-stream.png" width="500">
-
-## Development
-Building/Packaging Binaries: (uses `browserify`, `babel` and `pkg`)
-```
-npm run build
-npm run compile
-npm run package
-```
-
-Live Development: (using `nodemon` and `watchify`)
-```
-npm run dev-client
-npm run dev-server
-```
-
-## Contribute
-
-* Pull requests welcome but please read the [Code of Conduct](CODE_OF_CONDUCT.md) and the [Pull Request Template](pull_request_template.md) first.
-* Tip Jar: https://buymeacoffee.com/vexorian
+- Plex Pass is required to use the spoofed HDHR tuner with Plex
+- dizqueTV does not watch Plex for library updates — re-add programs after library changes
+- The in-browser player requires H.264/AAC output; MPEG-2/AC3 is needed for HDHR/Plex DVR. Configure the encoder in FFmpeg settings to match your use case.
 
 ## License
 
- * Original pseudotv-Plex code was released under [MIT license (c) 2020 Dan Ferguson](https://github.com/DEFENDORe/pseudotv/blob/665e71e24ee5e93d9c9c90545addb53fdc235ff6/LICENSE)
- * dizqueTV's improvements are released under zlib license (c) 2020 Victor Hugo Soliz Kuncar
- * FontAwesome: [https://fontawesome.com/license/free](https://archive.fo/PRqis)
- * Bootstrap: https://github.com/twbs/bootstrap/blob/v4.4.1/LICENSE
-
-## Thanks
-
- * DEFENDORe , George and everyone that worked on PseudoTV
- * Ahmed Said Al-Busaidi , for reporting exploits in advance before publishing in exploit-db.
- * Nathan for working on automation addons.
- * Timebomb, Rafael for the contributions during dizqueTV's active days.
- 
- 
+- Original pseudotv-plex code: [MIT license (c) 2020 Dan Ferguson](https://github.com/DEFENDORe/pseudotv/blob/665e71e24ee5e93d9c9c90545addb53fdc235ff6/LICENSE)
+- dizqueTV improvements: zlib license (c) 2020 Victor Hugo Soliz Kuncar
+- This fork: MIT

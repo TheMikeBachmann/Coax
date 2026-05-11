@@ -83,7 +83,10 @@ function video( channelService, fillerDB, db, programmingService, activeChannelS
 
         if (step == 0) {
             res.writeHead(200, {
-                'Content-Type': 'video/mp2t'
+                'Content-Type': 'video/mp2t',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Range',
             })
         }
 

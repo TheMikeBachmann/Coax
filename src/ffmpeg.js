@@ -569,8 +569,7 @@ class FFMPEG extends events.EventEmitter {
         if (this.hasBeenKilled) {
             return ;
         }
-        //console.log(this.ffmpegPath + " " + ffmpegArgs.join(" ") );
-        this.ffmpeg = spawn(this.ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', (doLogs?process.stderr:"ignore") ] } );
+        this.ffmpeg = spawn(this.ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', (doLogs ? process.stderr : 'ignore')] } );
         if (this.hasBeenKilled) {
             console.log("Send SIGKILL to ffmpeg");
             this.ffmpeg.kill("SIGKILL");

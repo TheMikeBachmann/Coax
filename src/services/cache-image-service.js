@@ -1,6 +1,6 @@
 const fs = require('fs');
 const express = require('express');
-const request = require('request');
+const axios = require('axios');
 
 /**
  * Manager a cache in disk for external images.
@@ -83,27 +83,16 @@ class CacheImageService {
      * @memberof CacheImageService
      */
     async requestImageAndStore(url, dbFile) {
-        return new Promise( async(resolve, reject) => {
-            const requestConfiguration = {
-                method: 'get',
-                url
-            };
-
-            request(requestConfiguration, (err, res) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    const mimeType = res.headers['content-type'];
-                    this.db.update({_id: dbFile._id}, {url: dbFile.url, mimeType});
-                    request(requestConfiguration)
-                    .pipe(fs.createWriteStream(`${this.cacheService.cachePath}/${this.imageCacheFolder}/${dbFile.url}`))
-                    .on('close', () =>{
-                        resolve(mimeType);
-                    });
-                }
-            });
-
+        const res = await axios.get(url, { responseType: 'stream' });
+        const mimeType = res.headers['content-type'];
+        this.db.update({_id: dbFile._id}, {url: dbFile.url, mimeType});
+        await new Promise((resolve, reject) => {
+            res.data
+                .pipe(fs.createWriteStream(`${this.cacheService.cachePath}/${this.imageCacheFolder}/${dbFile.url}`))
+                .on('close', resolve)
+                .on('error', reject);
         });
+        return mimeType;
     }
 
     /**
