@@ -1,5 +1,5 @@
 const { spawn } = require('child_process')
-const { createCanvas } = require('@napi-rs/canvas')
+const { createCanvas, loadImage } = require('@napi-rs/canvas')
 const http = require('http')
 
 const W = 704
@@ -38,9 +38,16 @@ function fetchJson(url) {
     })
 }
 
+// Convert a relative icon path (/images/...) to an absolute localhost URL.
+function resolveIcon(icon, port) {
+    if (!icon) return null
+    if (icon.startsWith('http://') || icon.startsWith('https://')) return icon
+    return `http://localhost:${port}${icon.startsWith('/') ? '' : '/'}${icon}`
+}
+
 // Builds a tall canvas: HEADER_H header + all channel rows.
-// Returns { canvas, rowsH }.
-function buildGuideCanvas(channels, lineups, now) {
+// Returns { canvas, rowsH, cycleH }.
+async function buildGuideCanvas(channels, lineups, now, port) {
     const t0 = new Date(now)
     t0.setSeconds(0, 0)
     t0.setMinutes(t0.getMinutes() < 30 ? 0 : 30)
@@ -48,13 +55,33 @@ function buildGuideCanvas(channels, lineups, now) {
         new Date(t0.getTime() + i * 30 * 60 * 1000)
     )
 
-    const rowsH = Math.max(channels.length * ROW_H, VISIBLE_CH_H)
+    // Repeat the channel list enough times that the canvas is always taller than
+    // the visible area, enabling seamless infinite scrolling regardless of how
+    // few channels there are.  The scroll modulo is cycleH (one full repetition)
+    // so scrollY=0 and scrollY=cycleH show identical content → no visible seam.
+    const cycleH = channels.length > 0 ? channels.length * ROW_H : VISIBLE_CH_H
+    const reps = channels.length > 0
+        ? Math.max(2, Math.ceil((VISIBLE_CH_H + cycleH) / cycleH) + 1)
+        : 1
+    const rowsH = reps * cycleH
     const totalH = HEADER_H + rowsH
     const canvas = createCanvas(W, totalH)
     const ctx = canvas.getContext('2d')
 
     ctx.fillStyle = '#0a0a3a'
     ctx.fillRect(0, 0, W, totalH)
+
+    // Pre-load channel icons in parallel; failures are silently skipped.
+    const iconMap = {}
+    await Promise.allSettled(
+        channels
+            .filter(ch => ch.icon)
+            .map(async ch => {
+                const url = resolveIcon(ch.icon, port)
+                if (!url) return
+                try { iconMap[ch.number] = await loadImage(url) } catch {}
+            })
+    )
 
     // ── Header bar ──
     ctx.fillStyle = '#1a1a6a'
@@ -76,11 +103,11 @@ function buildGuideCanvas(channels, lineups, now) {
     ctx.fillStyle = '#0a0a50'
     ctx.fillRect(0, HDR_H, W, TIME_H)
 
-    // Column dividers (full height)
+    // Column dividers — start below the title bar, extend through time-slot row and all channel rows
     ctx.fillStyle = '#3344aa'
-    ctx.fillRect(CH_COL, 0, 1, totalH)
+    ctx.fillRect(CH_COL, HDR_H, 1, totalH - HDR_H)
     for (let i = 1; i < N_SLOTS; i++) {
-        ctx.fillRect(CH_COL + i * SLOT_W, 0, 1, totalH)
+        ctx.fillRect(CH_COL + i * SLOT_W, HDR_H, 1, totalH - HDR_H)
     }
 
     // Time labels
@@ -92,46 +119,63 @@ function buildGuideCanvas(channels, lineups, now) {
         ctx.fillText(hhmm(slots[i]), CH_COL + i * SLOT_W + 4, HDR_H + TIME_H / 2)
     }
 
-    // ── Channel rows ──
-    for (let r = 0; r < channels.length; r++) {
-        const ch = channels[r]
-        const y = HEADER_H + r * ROW_H
+    // ── Channel rows (repeated reps times for seamless infinite scroll) ──
+    for (let rep = 0; rep < reps; rep++) {
+        for (let r = 0; r < channels.length; r++) {
+            const ch = channels[r]
+            const y = HEADER_H + (rep * channels.length + r) * ROW_H
 
-        ctx.fillStyle = r % 2 === 0 ? '#0f0f50' : '#080840'
-        ctx.fillRect(0, y, W, ROW_H)
-        ctx.fillStyle = '#3344aa'
-        ctx.fillRect(0, y + ROW_H - 1, W, 1)
+            ctx.fillStyle = r % 2 === 0 ? '#0f0f50' : '#080840'
+            ctx.fillRect(0, y, W, ROW_H)
+            ctx.fillStyle = '#3344aa'
+            ctx.fillRect(0, y + ROW_H - 1, W, 1)
 
-        ctx.textBaseline = 'top'
-        ctx.textAlign = 'left'
-        ctx.fillStyle = '#aaddff'
-        ctx.font = '10px monospace'
-        ctx.fillText(String(ch.number).substring(0, 4), 3, y + 4)
-        ctx.fillStyle = 'white'
-        ctx.fillText(String(ch.name || '').substring(0, 9), 3, y + 18)
+            const img = iconMap[ch.number]
+            if (img) {
+                // Fit icon centered in the full row slot
+                const pad = 2
+                const maxW = CH_COL - pad * 2
+                const maxH = ROW_H - pad * 2
+                const scale = Math.min(maxW / img.width, maxH / img.height)
+                const iw = Math.round(img.width * scale)
+                const ih = Math.round(img.height * scale)
+                const ix = Math.round(pad + (maxW - iw) / 2)
+                const iy = Math.round(y + pad + (maxH - ih) / 2)
+                ctx.drawImage(img, ix, iy, iw, ih)
+            } else {
+                ctx.textBaseline = 'top'
+                ctx.textAlign = 'left'
+                ctx.fillStyle = '#aaddff'
+                ctx.font = '10px monospace'
+                ctx.fillText(String(ch.number).substring(0, 4), 3, y + 4)
+                ctx.fillStyle = 'white'
+                ctx.fillText(String(ch.name || '').substring(0, 9), 3, y + 18)
+            }
 
-        const lineup = lineups[ch.number] || []
-        for (let s = 0; s < N_SLOTS; s++) {
-            const slotStart = slots[s].getTime()
-            const slotEnd = slotStart + 30 * 60 * 1000
-            const prog = lineup.find(p => {
-                const ps = new Date(p.start).getTime()
-                const pe = new Date(p.stop).getTime()
-                return ps < slotEnd && pe > slotStart
-            })
-            const px = CH_COL + s * SLOT_W + 3
-            ctx.fillStyle = 'white'
-            ctx.font = '11px monospace'
-            ctx.fillText(String(prog?.title || 'Off Air').substring(0, 16), px, y + 4)
-            if (prog?.sub?.season) {
-                ctx.fillStyle = '#888888'
-                ctx.font = '9px monospace'
-                ctx.fillText(`S${prog.sub.season}E${prog.sub.episode}`.substring(0, 8), px, y + 20)
+            const lineup = lineups[ch.number] || []
+            for (let s = 0; s < N_SLOTS; s++) {
+                const slotStart = slots[s].getTime()
+                const slotEnd = slotStart + 30 * 60 * 1000
+                const prog = lineup.find(p => {
+                    const ps = new Date(p.start).getTime()
+                    const pe = new Date(p.stop).getTime()
+                    return ps < slotEnd && pe > slotStart
+                })
+                const px = CH_COL + s * SLOT_W + 3
+                ctx.fillStyle = 'white'
+                ctx.font = '11px monospace'
+                ctx.textBaseline = 'top'
+                ctx.fillText(String(prog?.title || 'Off Air').substring(0, 16), px, y + 8)
+                if (prog?.sub?.season) {
+                    ctx.fillStyle = '#888888'
+                    ctx.font = '9px monospace'
+                    ctx.fillText(`S${prog.sub.season}E${prog.sub.episode}`.substring(0, 8), px, y + 22)
+                }
             }
         }
     }
 
-    return { canvas, rowsH }
+    return { canvas, rowsH, cycleH }
 }
 
 module.exports = function guideChannelHandler(channelService, db, port) {
@@ -188,7 +232,7 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         const frameCtx = frameCanvas.getContext('2d')
 
         let guideCanvas = null
-        let guideRowsH = VISIBLE_CH_H
+        let guideCycleH = VISIBLE_CH_H  // scroll modulo: one full channel-list repetition
         let refreshing = false
         let frameIndex = 0
 
@@ -217,17 +261,16 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             } catch (e) {
                 console.error('[guide-channel] Failed to fetch data:', e.message)
             }
-            const result = buildGuideCanvas(channels, lineups, now)
+            const result = await buildGuideCanvas(channels, lineups, now, port)
             guideCanvas = result.canvas
-            guideRowsH = result.rowsH
+            guideCycleH = result.cycleH
             refreshing = false
         }
 
         function renderFrame() {
             if (!guideCanvas) return null
             const t = frameIndex / FPS
-            const scrollRange = Math.max(guideRowsH - VISIBLE_CH_H, 0)
-            const scrollY = scrollRange > 0 ? (t * SCROLL_PX_PER_SEC) % scrollRange : 0
+            const scrollY = guideCycleH > 0 ? (t * SCROLL_PX_PER_SEC) % guideCycleH : 0
 
             frameCtx.fillStyle = '#0a0a3a'
             frameCtx.fillRect(0, 0, W, H)
