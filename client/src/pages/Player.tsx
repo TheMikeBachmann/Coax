@@ -20,12 +20,25 @@ export default function Player() {
   const [playing, setPlaying] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [clockStr, setClockStr] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<mpegts.Player | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const shouldPlayRef = useRef(false)
   const selectedRef = useRef<string>(selected)
   selectedRef.current = selected
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date()
+      const d = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+      const t = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      setClockStr(`${d}  ${t}`)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     dizquetv.getChannels().then(chs => {
@@ -68,8 +81,11 @@ export default function Player() {
     }, {
       enableWorker: true,
       liveBufferLatencyChasing: !isGuide,
-      liveBufferLatencyMaxLatency: isGuide ? 120 : 3,
+      liveBufferLatencyMaxLatency: isGuide ? 8 : 3,
       liveBufferLatencyMinRemain: 0.5,
+      autoCleanupSourceBuffer: true,
+      autoCleanupMinBackwardDuration: 30,
+      autoCleanupMaxBackwardDuration: 60,
     })
 
     player.on(mpegts.Events.ERROR, (type, detail) => {
@@ -165,13 +181,20 @@ export default function Player() {
         </div>
       )}
 
-      <div className="bg-black rounded-lg overflow-hidden aspect-video">
+      <div className="bg-black rounded-lg overflow-hidden relative"
+           style={{ aspectRatio: selected === GUIDE_VALUE ? '704/480' : '16/9' }}>
         <video
           ref={videoRef}
           controls
           className="w-full h-full"
           style={{ display: playing ? 'block' : 'none' }}
         />
+        {playing && selected === GUIDE_VALUE && (
+          <div className="absolute top-0 right-[1.1%] flex items-center text-white font-mono pointer-events-none select-none"
+               style={{ height: '6.25%', fontSize: 'clamp(8px, 1.7vw, 13px)' }}>
+            {clockStr}
+          </div>
+        )}
         {!playing && (
           <div className="w-full h-full flex items-center justify-center text-gray-600 text-sm">
             Select a channel and press Play

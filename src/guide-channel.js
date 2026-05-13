@@ -25,6 +25,25 @@ function hhmm(date) {
     return m === 0 ? `${h} ${ap}` : `${h}:${String(m).padStart(2, '0')} ${ap}`
 }
 
+function getSlotsAt(date) {
+    const t0 = new Date(date)
+    t0.setSeconds(0, 0)
+    t0.setMinutes(t0.getMinutes() < 30 ? 0 : 30)
+    return Array.from({ length: N_SLOTS }, (_, i) =>
+        new Date(t0.getTime() + i * 30 * 60 * 1000)
+    )
+}
+
+function drawTimeLabels(ctx, slots, midY) {
+    for (let i = 0; i < N_SLOTS; i++) {
+        ctx.fillStyle = 'cyan'
+        ctx.font = '12px monospace'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(hhmm(slots[i]), CH_COL + i * SLOT_W + 4, midY)
+    }
+}
+
 function fetchJson(url) {
     return new Promise((resolve, reject) => {
         http.get(url, res => {
@@ -48,12 +67,7 @@ function resolveIcon(icon, port) {
 // Builds a tall canvas: HEADER_H header + all channel rows.
 // Returns { canvas, rowsH, cycleH }.
 async function buildGuideCanvas(channels, lineups, now, port) {
-    const t0 = new Date(now)
-    t0.setSeconds(0, 0)
-    t0.setMinutes(t0.getMinutes() < 30 ? 0 : 30)
-    const slots = Array.from({ length: N_SLOTS }, (_, i) =>
-        new Date(t0.getTime() + i * 30 * 60 * 1000)
-    )
+    const slots = getSlotsAt(now)
 
     // Repeat the channel list enough times that the canvas is always taller than
     // the visible area, enabling seamless infinite scrolling regardless of how
@@ -92,13 +106,6 @@ async function buildGuideCanvas(channels, lineups, now, port) {
     ctx.textBaseline = 'middle'
     ctx.fillText('PROGRAM GUIDE', 8, HDR_H / 2)
 
-    const dstr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-    const tstr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-    ctx.fillStyle = 'white'
-    ctx.font = '12px monospace'
-    ctx.textAlign = 'right'
-    ctx.fillText(`${dstr}  ${tstr}`, W - 8, HDR_H / 2)
-
     // ── Time-slot bar ──
     ctx.fillStyle = '#0a0a50'
     ctx.fillRect(0, HDR_H, W, TIME_H)
@@ -108,15 +115,6 @@ async function buildGuideCanvas(channels, lineups, now, port) {
     ctx.fillRect(CH_COL, HDR_H, 1, totalH - HDR_H)
     for (let i = 1; i < N_SLOTS; i++) {
         ctx.fillRect(CH_COL + i * SLOT_W, HDR_H, 1, totalH - HDR_H)
-    }
-
-    // Time labels
-    for (let i = 0; i < N_SLOTS; i++) {
-        ctx.fillStyle = 'cyan'
-        ctx.font = '12px monospace'
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(hhmm(slots[i]), CH_COL + i * SLOT_W + 4, HDR_H + TIME_H / 2)
     }
 
     // ── Channel rows (repeated reps times for seamless infinite scroll) ──
@@ -207,6 +205,8 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             '-map', '1:a',
             '-c:v', vEncoder,
             '-preset', 'ultrafast',
+            ...(vEncoder === 'libx264' ? ['-tune', 'zerolatency'] : []),
+            '-g', String(FPS),
             '-c:a', aEncoder,
             '-f', 'mpegts', 'pipe:1',
         ], { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -278,22 +278,57 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             frameCtx.drawImage(guideCanvas, 0, HEADER_H + scrollY, W, VISIBLE_CH_H, 0, HEADER_H, W, VISIBLE_CH_H)
             // Pinned header
             frameCtx.drawImage(guideCanvas, 0, 0, W, HEADER_H, 0, 0, W, HEADER_H)
+
+            // Time-row labels: slide in new half-hour set for 4s after each rollover
+            const now = new Date()
+            const totalMs = (now.getMinutes() * 60 + now.getSeconds()) * 1000 + now.getMilliseconds()
+            const msSinceRollover = totalMs % (30 * 60 * 1000)
+            const ANIM_MS = 4000
+            const progress = msSinceRollover < ANIM_MS ? msSinceRollover / ANIM_MS : 1
+            const curSlots = getSlotsAt(now)
+            frameCtx.save()
+            frameCtx.beginPath()
+            frameCtx.rect(0, HDR_H, W, TIME_H)
+            frameCtx.clip()
+            if (progress < 1) {
+                const prevSlots = curSlots.map(s => new Date(s.getTime() - 30 * 60 * 1000))
+                drawTimeLabels(frameCtx, prevSlots, HDR_H + TIME_H / 2 - progress * TIME_H)
+                drawTimeLabels(frameCtx, curSlots, HDR_H + TIME_H / 2 + (1 - progress) * TIME_H)
+            } else {
+                drawTimeLabels(frameCtx, curSlots, HDR_H + TIME_H / 2)
+            }
+            frameCtx.restore()
+
             return Buffer.from(frameCtx.getImageData(0, 0, W, H).data.buffer)
         }
 
         // Load guide data before starting the frame loop
         await refreshGuide()
 
+        const initNow = new Date()
+        let lastRolloverKey = `${initNow.getHours()}:${initNow.getMinutes() < 30 ? '00' : '30'}`
+
         function scheduleNextFrame() {
             if (stopped) return
             const frameStart = Date.now()
 
-            // Refresh guide data every REFRESH_SEC in the background
+            // Refresh at each half-hour boundary so data matches the new labels
+            const checkNow = new Date()
+            const rolloverKey = `${checkNow.getHours()}:${checkNow.getMinutes() < 30 ? '00' : '30'}`
+            if (rolloverKey !== lastRolloverKey) {
+                lastRolloverKey = rolloverKey
+                refreshGuide()
+            }
+
+            // Also refresh every REFRESH_SEC frames
             if (frameIndex > 0 && frameIndex % FRAMES_PER_REFRESH === 0) {
                 refreshGuide()
             }
 
-            const frame = renderFrame()
+            let frame
+            try { frame = renderFrame() } catch (e) {
+                console.error('[guide-channel] renderFrame error:', e.message)
+            }
             if (frame && !ff.stdin.destroyed) {
                 frameIndex++
                 const ok = ff.stdin.write(frame)
