@@ -217,13 +217,32 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
   const removeProgram = (idx: number) =>
     update({ programs: ch.programs.filter((_, i) => i !== idx) })
 
+  const padPrograms = (programs: Program[], boundary: number): Program[] => {
+    const channelStart = new Date(ch.startTime).getTime()
+    let elapsed = 0
+    const result: Program[] = []
+    for (const prog of programs) {
+      if (prog.isOffline && prog.flex) continue
+      result.push(prog)
+      elapsed += prog.duration
+      const rem = (channelStart + elapsed) % boundary
+      if (rem > 0) {
+        result.push({ isOffline: true, flex: true, duration: boundary - rem })
+        elapsed += boundary - rem
+      }
+    }
+    return result
+  }
+
+  const hasFlex = ch.programs.some(p => p.isOffline && p.flex)
+
   const shuffle = () => {
-    const arr = [...ch.programs]
+    const arr = ch.programs.filter(p => !p.isOffline)
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]]
     }
-    update({ programs: arr })
+    update({ programs: hasFlex && padBoundary ? padPrograms(arr, padBoundary) : arr })
   }
 
   const removeDuplicates = () => {
@@ -239,22 +258,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
 
   const applyPadding = () => {
     if (!padBoundary) return
-    const channelStart = new Date(ch.startTime).getTime()
-    let elapsed = 0
-    const result: Program[] = []
-    for (const prog of ch.programs) {
-      if (prog.isOffline && prog.flex) continue // strip existing flex pads
-      result.push(prog)
-      elapsed += prog.duration
-      const absoluteEnd = channelStart + elapsed
-      const rem = absoluteEnd % padBoundary
-      if (rem > 0) {
-        const flexMs = padBoundary - rem
-        result.push({ isOffline: true, flex: true, duration: flexMs })
-        elapsed += flexMs
-      }
-    }
-    update({ programs: result })
+    update({ programs: padPrograms(ch.programs, padBoundary) })
   }
 
   const addPrograms = useCallback((programs: Program[]) => {
