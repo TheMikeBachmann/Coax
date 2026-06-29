@@ -229,6 +229,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
   const removeDuplicates = () => {
     const seen = new Set<string>()
     update({ programs: ch.programs.filter(p => {
+      if (p.isOffline) return true
       const key = `${p.serverKey}-${p.ratingKey}-${p.file}`
       if (seen.has(key)) return false
       seen.add(key)
