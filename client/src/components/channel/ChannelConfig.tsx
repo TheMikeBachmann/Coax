@@ -130,7 +130,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
   const [showLibrary, setShowLibrary] = useState(false)
   const [showTimeSlots, setShowTimeSlots] = useState(false)
   const [showRandomSlots, setShowRandomSlots] = useState(false)
-  const [padBoundary, setPadBoundary] = useState(0)
+  const [padBoundary, setPadBoundary] = useState(ch.padBoundary ?? 0)
   const [uploadingIcon, setUploadingIcon] = useState(false)
   const iconInputRef = useRef<HTMLInputElement>(null)
 
@@ -352,7 +352,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
                   <div className="flex items-center gap-1.5">
                     <select
                       value={padBoundary}
-                      onChange={e => setPadBoundary(Number(e.target.value))}
+                      onChange={e => { const v = Number(e.target.value); setPadBoundary(v); update({ padBoundary: v }) }}
                       className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1.5 text-sm"
                     >
                       {ALIGNMENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}

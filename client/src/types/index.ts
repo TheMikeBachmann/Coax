@@ -69,6 +69,7 @@ export interface Channel {
   offlinePicture?: string
   offlineSoundtrack?: string
   groupTitle?: string
+  padBoundary?: number
   transcoding?: TranscodingSettings
   onDemand?: OnDemandSettings
   disableFillerOverlay?: boolean

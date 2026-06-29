@@ -18,29 +18,33 @@ const FPS = 25
 const FRAME_MS = 1000 / FPS
 const FRAMES_PER_REFRESH = FPS * REFRESH_SEC
 
-function hhmm(date) {
-    const h = date.getHours() % 12 || 12
-    const m = date.getMinutes()
-    const ap = date.getHours() >= 12 ? 'PM' : 'AM'
-    return m === 0 ? `${h} ${ap}` : `${h}:${String(m).padStart(2, '0')} ${ap}`
+function hhmm(date, tz) {
+    const fmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz })
+    return fmt.format(date).replace(':00', '').replace(' ', ' ')
 }
 
-function getSlotsAt(date) {
+function getSlotsAt(date, tz) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric', minute: 'numeric', hour12: false, timeZone: tz
+    }).formatToParts(date)
+    const minutes = parseInt(parts.find(p => p.type === 'minute').value)
     const t0 = new Date(date)
     t0.setSeconds(0, 0)
-    t0.setMinutes(t0.getMinutes() < 30 ? 0 : 30)
+    t0.setMilliseconds(0)
+    const msToSubtract = (minutes % 30) * 60 * 1000
+    t0.setTime(t0.getTime() - msToSubtract)
     return Array.from({ length: N_SLOTS }, (_, i) =>
         new Date(t0.getTime() + i * 30 * 60 * 1000)
     )
 }
 
-function drawTimeLabels(ctx, slots, midY) {
+function drawTimeLabels(ctx, slots, midY, tz) {
     for (let i = 0; i < N_SLOTS; i++) {
         ctx.fillStyle = 'cyan'
         ctx.font = '12px monospace'
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
-        ctx.fillText(hhmm(slots[i]), CH_COL + i * SLOT_W + 4, midY)
+        ctx.fillText(hhmm(slots[i], tz), CH_COL + i * SLOT_W + 4, midY)
     }
 }
 
@@ -66,8 +70,8 @@ function resolveIcon(icon, port) {
 
 // Builds a tall canvas: HEADER_H header + all channel rows.
 // Returns { canvas, rowsH, cycleH }.
-async function buildGuideCanvas(channels, lineups, now, port) {
-    const slots = getSlotsAt(now)
+async function buildGuideCanvas(channels, lineups, now, port, tz) {
+    const slots = getSlotsAt(now, tz)
 
     // Repeat the channel list enough times that the canvas is always taller than
     // the visible area, enabling seamless infinite scrolling regardless of how
@@ -186,6 +190,7 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         })
 
         let stopped = false
+        const tz = req.query.tz || 'UTC'
 
         const ffmpegSettings = db['ffmpeg-settings'].find()[0] || {}
         const ffmpegPath = ffmpegSettings.ffmpegPath || 'ffmpeg'
@@ -239,32 +244,37 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         async function refreshGuide() {
             if (refreshing) return
             refreshing = true
-            const now = new Date()
-            const from = now.toISOString()
-            const to = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
-            let channels = []
-            let lineups = {}
             try {
-                const nums = await channelService.getAllChannelNumbers()
-                channels = (await Promise.all(nums.map(n => channelService.getChannel(n))))
-                    .filter(Boolean)
-                    .sort((a, b) => a.number - b.number)
-                await Promise.all(channels.map(async ch => {
-                    try {
-                        const data = await fetchJson(
-                            `http://localhost:${port}/api/guide/channels/${ch.number}` +
-                            `?dateFrom=${encodeURIComponent(from)}&dateTo=${encodeURIComponent(to)}`
-                        )
-                        lineups[ch.number] = data.programs || []
-                    } catch { lineups[ch.number] = [] }
-                }))
+                const now = new Date()
+                const from = now.toISOString()
+                const to = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
+                let channels = []
+                let lineups = {}
+                try {
+                    const nums = await channelService.getAllChannelNumbers()
+                    channels = (await Promise.all(nums.map(n => channelService.getChannel(n))))
+                        .filter(Boolean)
+                        .sort((a, b) => a.number - b.number)
+                    await Promise.all(channels.map(async ch => {
+                        try {
+                            const data = await fetchJson(
+                                `http://localhost:${port}/api/guide/channels/${ch.number}` +
+                                `?dateFrom=${encodeURIComponent(from)}&dateTo=${encodeURIComponent(to)}`
+                            )
+                            lineups[ch.number] = data.programs || []
+                        } catch { lineups[ch.number] = [] }
+                    }))
+                } catch (e) {
+                    console.error('[guide-channel] Failed to fetch data:', e.message)
+                }
+                const result = await buildGuideCanvas(channels, lineups, now, port, tz)
+                guideCanvas = result.canvas
+                guideCycleH = result.cycleH
             } catch (e) {
-                console.error('[guide-channel] Failed to fetch data:', e.message)
+                console.error('[guide-channel] refreshGuide error:', e.message)
+            } finally {
+                refreshing = false
             }
-            const result = await buildGuideCanvas(channels, lineups, now, port)
-            guideCanvas = result.canvas
-            guideCycleH = result.cycleH
-            refreshing = false
         }
 
         function renderFrame() {
@@ -285,17 +295,17 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             const msSinceRollover = totalMs % (30 * 60 * 1000)
             const ANIM_MS = 4000
             const progress = msSinceRollover < ANIM_MS ? msSinceRollover / ANIM_MS : 1
-            const curSlots = getSlotsAt(now)
+            const curSlots = getSlotsAt(now, tz)
             frameCtx.save()
             frameCtx.beginPath()
             frameCtx.rect(0, HDR_H, W, TIME_H)
             frameCtx.clip()
             if (progress < 1) {
                 const prevSlots = curSlots.map(s => new Date(s.getTime() - 30 * 60 * 1000))
-                drawTimeLabels(frameCtx, prevSlots, HDR_H + TIME_H / 2 - progress * TIME_H)
-                drawTimeLabels(frameCtx, curSlots, HDR_H + TIME_H / 2 + (1 - progress) * TIME_H)
+                drawTimeLabels(frameCtx, prevSlots, HDR_H + TIME_H / 2 - progress * TIME_H, tz)
+                drawTimeLabels(frameCtx, curSlots, HDR_H + TIME_H / 2 + (1 - progress) * TIME_H, tz)
             } else {
-                drawTimeLabels(frameCtx, curSlots, HDR_H + TIME_H / 2)
+                drawTimeLabels(frameCtx, curSlots, HDR_H + TIME_H / 2, tz)
             }
             frameCtx.restore()
 
@@ -305,8 +315,16 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         // Load guide data before starting the frame loop
         await refreshGuide()
 
-        const initNow = new Date()
-        let lastRolloverKey = `${initNow.getHours()}:${initNow.getMinutes() < 30 ? '00' : '30'}`
+        function rolloverKey(date) {
+            const parts = new Intl.DateTimeFormat('en-US', {
+                hour: 'numeric', minute: 'numeric', hour12: false, timeZone: tz
+            }).formatToParts(date)
+            const h = parts.find(p => p.type === 'hour').value
+            const m = parseInt(parts.find(p => p.type === 'minute').value)
+            return `${h}:${m < 30 ? '00' : '30'}`
+        }
+
+        let lastRolloverKey = rolloverKey(new Date())
 
         function scheduleNextFrame() {
             if (stopped) return
@@ -314,15 +332,15 @@ module.exports = function guideChannelHandler(channelService, db, port) {
 
             // Refresh at each half-hour boundary so data matches the new labels
             const checkNow = new Date()
-            const rolloverKey = `${checkNow.getHours()}:${checkNow.getMinutes() < 30 ? '00' : '30'}`
-            if (rolloverKey !== lastRolloverKey) {
-                lastRolloverKey = rolloverKey
-                refreshGuide()
+            const key = rolloverKey(checkNow)
+            if (key !== lastRolloverKey) {
+                lastRolloverKey = key
+                refreshGuide().catch(e => console.error('[guide-channel] rollover refresh error:', e.message))
             }
 
             // Also refresh every REFRESH_SEC frames
             if (frameIndex > 0 && frameIndex % FRAMES_PER_REFRESH === 0) {
-                refreshGuide()
+                refreshGuide().catch(e => console.error('[guide-channel] periodic refresh error:', e.message))
             }
 
             let frame

@@ -9,9 +9,12 @@ const GUIDE_VALUE = '__guide__'
 
 function streamUrlFor(selected: string): string {
   if (!selected) return ''
-  if (selected === GUIDE_VALUE)
-    return `${window.location.protocol}//${window.location.hostname}:8000/guide-channel`
-  return `${window.location.protocol}//${window.location.hostname}:8000/video?channel=${selected}`
+  const base = `${window.location.protocol}//${window.location.hostname}:8000`
+  if (selected === GUIDE_VALUE) {
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    return `${base}/guide-channel?tz=${tz}`
+  }
+  return `${base}/video?channel=${selected}`
 }
 
 export default function Player() {
@@ -70,7 +73,7 @@ export default function Player() {
     if (!videoRef.current) return
     destroyPlayer()
 
-    const url = `http://${window.location.hostname}:8000${sel === GUIDE_VALUE ? '/guide-channel' : `/video?channel=${sel}`}`
+    const url = streamUrlFor(sel)
     console.log('[Player] Connecting to', url)
 
     const isGuide = sel === GUIDE_VALUE
