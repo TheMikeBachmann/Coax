@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Save, RotateCcw } from 'lucide-react'
-import { dizquetv } from '../../api/dizquetv'
+import { coax } from '../../api/coax'
 import { useToast } from '../Toast'
 import type { HdhrSettings } from '../../types'
 
@@ -10,7 +10,7 @@ export default function HdhrSettings() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    dizquetv.getHdhrSettings().then(setSettings).catch(() => addToast('Failed to load HDHR settings', 'error'))
+    coax.getHdhrSettings().then(setSettings).catch(() => addToast('Failed to load HDHR settings', 'error'))
   }, [])
 
   if (!settings) return <div className="text-gray-400">Loading…</div>
@@ -20,7 +20,7 @@ export default function HdhrSettings() {
   const save = async () => {
     setSaving(true)
     try {
-      await dizquetv.updateHdhrSettings(settings)
+      await coax.updateHdhrSettings(settings)
       addToast('HDHR settings saved', 'success')
     } catch { addToast('Failed to save', 'error') }
     setSaving(false)
@@ -28,7 +28,7 @@ export default function HdhrSettings() {
 
   const reset = async () => {
     try {
-      const res = await dizquetv.resetHdhrSettings()
+      const res = await coax.resetHdhrSettings()
       setSettings(res)
       addToast('HDHR settings reset', 'info')
     } catch { addToast('Failed to reset', 'error') }

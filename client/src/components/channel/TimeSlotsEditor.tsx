@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X, Plus, Trash2 } from 'lucide-react'
-import { dizquetv } from '../../api/dizquetv'
+import { coax } from '../../api/coax'
 import { useToast } from '../Toast'
 import type { Program } from '../../types'
 
@@ -65,7 +65,7 @@ export default function TimeSlotsEditor({ programs, onApply, onClose }: Props) {
           days: s.days,
         })),
       }
-      const result = await dizquetv.calculateTimeSlots(programs, schedule)
+      const result = await coax.calculateTimeSlots(programs, schedule)
       onApply(result as Program[])
       addToast('Schedule applied', 'success')
       onClose()

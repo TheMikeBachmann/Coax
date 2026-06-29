@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ZoomIn, ZoomOut, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
-import { dizquetv } from '../api/dizquetv'
+import { coax } from '../api/coax'
 
 const MINUTE = 60 * 1000
 
@@ -79,7 +79,7 @@ export default function Guide() {
 
   const loadChannel = useCallback(async (number: number, t0: number, T: number) => {
     const d0 = new Date(t0), d1 = new Date(t0 + T)
-    const lineup = await dizquetv.getChannelLineup(number, d0, d1)
+    const lineup = await coax.getChannelLineup(number, d0, d1)
     const programs: GuideProgram[] = []
     let pending = 0
     let totalAdded = 0
@@ -175,7 +175,7 @@ export default function Guide() {
       if (!skipStatus) {
         setChannelNumbers([0])
         setChannels({ 0: { number: 0, name: '', icon: '', altTitle: '', programs: [], loading: true } })
-        const status = await dizquetv.getGuideStatus()
+        const status = await coax.getGuideStatus()
         setLastUpdate(new Date(status.lastUpdate).getTime())
         nums = status.channelNumbers
         setChannelNumbers(nums)
@@ -197,7 +197,7 @@ export default function Guide() {
 
     timerRef.current = setTimeout(async () => {
       try {
-        const status = await dizquetv.getGuideStatus()
+        const status = await coax.getGuideStatus()
         const t = new Date(status.lastUpdate).getTime()
         if (t > lastUpdate) await refresh()
         else timerRef.current = setTimeout(() => refresh(true), 60000)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Plus, Edit2, Trash2, X, Loader2 } from 'lucide-react'
-import { dizquetv } from '../api/dizquetv'
+import { coax } from '../api/coax'
 import { useToast } from '../components/Toast'
 import PlexLibrary from '../components/channel/PlexLibrary'
 import type { CustomShow, CustomShowInfo, Program } from '../types'
@@ -33,10 +33,10 @@ function ShowConfig({ show, onSave, onClose }: ShowConfigProps) {
     try {
       const payload = { name: name.trim(), content: programs } as CustomShow
       if (show) {
-        await dizquetv.updateShow(show.id, payload)
+        await coax.updateShow(show.id, payload)
         addToast('Custom show updated', 'success')
       } else {
-        await dizquetv.createShow(payload)
+        await coax.createShow(payload)
         addToast('Custom show created', 'success')
       }
       onSave()
@@ -144,7 +144,7 @@ export default function CustomShows() {
 
   const load = async () => {
     try {
-      setShows(await dizquetv.getAllShowsInfo())
+      setShows(await coax.getAllShowsInfo())
     } catch {
       addToast('Failed to load custom shows', 'error')
     } finally {
@@ -156,7 +156,7 @@ export default function CustomShows() {
 
   const openEdit = async (info: CustomShowInfo) => {
     try {
-      const full = await dizquetv.getShow(info.id)
+      const full = await coax.getShow(info.id)
       setEditingShow(full)
     } catch {
       addToast('Failed to load custom show', 'error')
@@ -166,7 +166,7 @@ export default function CustomShows() {
   const deleteShow = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}"?`)) return
     try {
-      await dizquetv.deleteShow(id)
+      await coax.deleteShow(id)
       addToast('Custom show deleted', 'success')
       load()
     } catch {

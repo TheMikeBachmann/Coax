@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Plus, Edit2, Trash2, X, Loader2 } from 'lucide-react'
-import { dizquetv } from '../api/dizquetv'
+import { coax } from '../api/coax'
 import { useToast } from '../components/Toast'
 import PlexLibrary from '../components/channel/PlexLibrary'
 import type { Filler, FillerInfo, Program } from '../types'
@@ -33,10 +33,10 @@ function FillerConfig({ filler, onSave, onClose }: FillerConfigProps) {
     try {
       const payload = { name: name.trim(), content: programs } as Filler
       if (filler) {
-        await dizquetv.updateFiller(filler.id, payload)
+        await coax.updateFiller(filler.id, payload)
         addToast('Filler collection updated', 'success')
       } else {
-        await dizquetv.createFiller(payload)
+        await coax.createFiller(payload)
         addToast('Filler collection created', 'success')
       }
       onSave()
@@ -144,7 +144,7 @@ export default function FillerPage() {
 
   const load = async () => {
     try {
-      setFillers(await dizquetv.getAllFillersInfo())
+      setFillers(await coax.getAllFillersInfo())
     } catch {
       addToast('Failed to load filler collections', 'error')
     } finally {
@@ -156,7 +156,7 @@ export default function FillerPage() {
 
   const openEdit = async (info: FillerInfo) => {
     try {
-      const full = await dizquetv.getFiller(info.id)
+      const full = await coax.getFiller(info.id)
       setEditingFiller(full)
     } catch {
       addToast('Failed to load filler', 'error')
@@ -166,7 +166,7 @@ export default function FillerPage() {
   const deleteFiller = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}"?`)) return
     try {
-      await dizquetv.deleteFiller(id)
+      await coax.deleteFiller(id)
       addToast('Filler collection deleted', 'success')
       load()
     } catch {

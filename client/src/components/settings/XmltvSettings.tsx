@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Save, RotateCcw } from 'lucide-react'
-import { dizquetv } from '../../api/dizquetv'
+import { coax } from '../../api/coax'
 import { useToast } from '../Toast'
 import type { XmltvSettings } from '../../types'
 
@@ -10,7 +10,7 @@ export default function XmltvSettings() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    dizquetv.getXmltvSettings().then(setSettings).catch(() => addToast('Failed to load XMLTV settings', 'error'))
+    coax.getXmltvSettings().then(setSettings).catch(() => addToast('Failed to load XMLTV settings', 'error'))
   }, [])
 
   if (!settings) return <div className="text-gray-400">Loading…</div>
@@ -20,7 +20,7 @@ export default function XmltvSettings() {
   const save = async () => {
     setSaving(true)
     try {
-      const res = await dizquetv.updateXmltvSettings(settings)
+      const res = await coax.updateXmltvSettings(settings)
       setSettings(res)
       addToast('XMLTV settings saved', 'success')
     } catch { addToast('Failed to save', 'error') }
@@ -29,7 +29,7 @@ export default function XmltvSettings() {
 
   const reset = async () => {
     try {
-      const res = await dizquetv.resetXmltvSettings()
+      const res = await coax.resetXmltvSettings()
       setSettings(res)
       addToast('XMLTV settings reset', 'info')
     } catch { addToast('Failed to reset', 'error') }

@@ -85,7 +85,7 @@ function cleanUpChannel(channel) {
       ||
       (channel.groupTitle === '')
     ) {
-      channel.groupTitle = "dizqueTV";
+      channel.groupTitle = "Coax";
     }
     channel.programs = channel.programs.flatMap( cleanUpProgram );
     delete channel.fillerContent;

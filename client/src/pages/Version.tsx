@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { dizquetv } from '../api/dizquetv'
+import { coax } from '../api/coax'
 import type { VersionInfo } from '../types'
 
 export default function Version() {
@@ -7,7 +7,7 @@ export default function Version() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    dizquetv.getVersion().then(setInfo).catch(() => setError('Failed to load version info'))
+    coax.getVersion().then(setInfo).catch(() => setError('Failed to load version info'))
   }, [])
 
   return (
@@ -18,7 +18,7 @@ export default function Version() {
       {info && (
         <div className="grid gap-4 max-w-md">
           {[
-            { label: 'dizqueTV', value: info.dizquetv },
+            { label: 'Coax', value: info.coax },
             { label: 'FFmpeg', value: info.ffmpeg },
             { label: 'Node.js', value: info.nodejs },
           ].map(({ label, value }) => (

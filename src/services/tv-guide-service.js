@@ -1,6 +1,6 @@
 const events = require('events')
 const constants = require("../constants");
-const  FALLBACK_ICON = "https://raw.githubusercontent.com/vexorain/dizquetv/main/resources/dizquetv.png";
+const  FALLBACK_ICON = "https://raw.githubusercontent.com/TheMikeBachmann/coax/main/resources/coax.png";
 const throttle = require('./throttle');
 
 class TVGuideService extends events.EventEmitter
@@ -378,7 +378,7 @@ class TVGuideService extends events.EventEmitter
         let result = {};
         if (channels.length == 0) {
             let channel = {
-                name: "dizqueTV",
+                name: "Coax",
                 icon: FALLBACK_ICON,
             }
             result[1] = {

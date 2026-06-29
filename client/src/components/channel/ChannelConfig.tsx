@@ -22,7 +22,7 @@ import TimeSlotsEditor from './TimeSlotsEditor'
 import RandomSlotsEditor from './RandomSlotsEditor'
 import type { Channel, Program, FillerInfo, Watermark, FillerCollection } from '../../types'
 import { RESOLUTION_OPTIONS } from '../../types'
-import { dizquetv } from '../../api/dizquetv'
+import { coax } from '../../api/coax'
 
 const TABS = [
   { id: 'programming', label: 'Programming', icon: Tv },
@@ -66,7 +66,7 @@ function initChannel(existing: Channel | null, channels: Channel[]): Channel {
   return {
     number: num,
     name: `Channel ${num}`,
-    icon: `${window.location.origin}/images/dizquetv.png`,
+    icon: `${window.location.origin}/images/coax.png`,
     startTime: nextStartTime().toISOString(),
     programs: [],
     watermark: defaultWatermark(),
@@ -78,7 +78,7 @@ function initChannel(existing: Channel | null, channels: Channel[]): Channel {
     offlineMode: 'pic',
     offlinePicture: `${window.location.origin}/images/generic-offline-screen.png`,
     offlineSoundtrack: '',
-    groupTitle: 'dizqueTV',
+    groupTitle: 'Coax',
     transcoding: { targetResolution: '' },
     onDemand: { isOnDemand: false, modulo: 1 },
     disableFillerOverlay: true,
@@ -185,7 +185,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
       const uploadFile = new File([blob], file.name, { type: file.type })
       const form = new FormData()
       form.append('image', uploadFile)
-      const res = await dizquetv.uploadImage(form)
+      const res = await coax.uploadImage(form)
       if (res?.data?.fileUrl) update({ icon: res.data.fileUrl })
       else addToast('Upload failed', 'error')
     } catch {
@@ -262,7 +262,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
 
   const loadFillers = async () => {
     if (fillerLoaded) return
-    const infos = await dizquetv.getAllFillersInfo()
+    const infos = await coax.getAllFillersInfo()
     setFillerInfos(infos)
     setFillerLoaded(true)
   }
@@ -273,10 +273,10 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
     setSaving(true)
     try {
       if (isNew) {
-        await dizquetv.addChannel(ch)
+        await coax.addChannel(ch)
         addToast('Channel created', 'success')
       } else {
-        await dizquetv.updateChannel(ch)
+        await coax.updateChannel(ch)
         addToast('Channel updated', 'success')
       }
       onSave(ch)

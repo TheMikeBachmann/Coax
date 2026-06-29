@@ -4,7 +4,7 @@ RUN apk add --no-cache ffmpeg
 
 WORKDIR /home/node/app
 
-COPY package.json ./
+COPY package*.json ./
 RUN npm install
 
 COPY . .
@@ -12,7 +12,7 @@ RUN npm run build
 
 EXPOSE 8000
 
-ENV DATABASE=/.dizquetv
+ENV DATABASE=/.coax
 ENV PORT=8000
 
 CMD ["node", "index.js"]

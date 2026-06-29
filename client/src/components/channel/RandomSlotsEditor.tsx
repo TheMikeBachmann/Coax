@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X, Plus, Trash2 } from 'lucide-react'
-import { dizquetv } from '../../api/dizquetv'
+import { coax } from '../../api/coax'
 import { useToast } from '../Toast'
 import type { Program } from '../../types'
 
@@ -54,7 +54,7 @@ export default function RandomSlotsEditor({ programs, onApply, onClose }: Props)
           cooldown: s.cooldown * 60 * 1000,
         })),
       }
-      const result = await dizquetv.calculateRandomSlots(programs, schedule)
+      const result = await coax.calculateRandomSlots(programs, schedule)
       onApply(result as Program[])
       addToast('Random schedule applied', 'success')
       onClose()

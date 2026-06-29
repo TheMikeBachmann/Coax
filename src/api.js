@@ -34,7 +34,7 @@ function api(db, channelService, fillerDB, customShowDB, xmltvInterval,  guideSe
         let ffmpegSettings = db['ffmpeg-settings'].find()[0];
         let v = await (new FFMPEGInfo(ffmpegSettings)).getVersion();
         res.send( {
-            "dizquetv" : constants.VERSION_NAME,
+            "coax" : constants.VERSION_NAME,
             "ffmpeg" : v,
             "nodejs" : process.version,
         } );

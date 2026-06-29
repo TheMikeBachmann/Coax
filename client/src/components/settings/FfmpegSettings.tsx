@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Lock, Unlock, RotateCcw, Save } from 'lucide-react'
-import { dizquetv } from '../../api/dizquetv'
+import { coax } from '../../api/coax'
 import { useToast } from '../Toast'
 import type { FfmpegSettings } from '../../types'
 import { RESOLUTION_OPTIONS } from '../../types'
@@ -33,7 +33,7 @@ export default function FfmpegSettings() {
   const [saving, setSaving] = useState(false)
   const [unlocking, setUnlocking] = useState(false)
 
-  const load = () => dizquetv.getFfmpegSettings().then(setSettings).catch(() => addToast('Failed to load FFmpeg settings', 'error'))
+  const load = () => coax.getFfmpegSettings().then(setSettings).catch(() => addToast('Failed to load FFmpeg settings', 'error'))
 
   useEffect(() => { load() }, [])
 
@@ -44,7 +44,7 @@ export default function FfmpegSettings() {
   const save = async () => {
     setSaving(true)
     try {
-      const res = await dizquetv.updateFfmpegSettings(settings)
+      const res = await coax.updateFfmpegSettings(settings)
       setSettings(res)
       addToast('FFmpeg settings saved', 'success')
     } catch { addToast('Failed to save', 'error') }
@@ -53,7 +53,7 @@ export default function FfmpegSettings() {
 
   const reset = async () => {
     try {
-      const res = await dizquetv.resetFfmpegSettings()
+      const res = await coax.resetFfmpegSettings()
       setSettings(res)
       addToast('FFmpeg settings reset', 'info')
     } catch { addToast('Failed to reset', 'error') }

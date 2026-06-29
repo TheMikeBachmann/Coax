@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Copy, Play, Square } from 'lucide-react'
 import mpegts from 'mpegts.js'
-import { dizquetv } from '../api/dizquetv'
+import { coax } from '../api/coax'
 import type { ChannelDescription } from '../types'
 
 const RECONNECT_DELAY_MS = 2000
@@ -41,7 +41,7 @@ export default function Player() {
   }, [])
 
   useEffect(() => {
-    dizquetv.getChannels().then(chs => {
+    coax.getChannels().then(chs => {
       const descs = chs.map(ch => ({ number: ch.number, name: ch.name, icon: ch.icon }))
       setChannels(descs)
       setSelected(GUIDE_VALUE)

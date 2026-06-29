@@ -228,7 +228,7 @@ export interface PlexResource {
 }
 
 export interface VersionInfo {
-  dizquetv: string
+  coax: string
   ffmpeg: string
   nodejs: string
 }

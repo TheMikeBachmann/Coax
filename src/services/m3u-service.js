@@ -57,7 +57,7 @@ class M3uService {
             }
         }
         if (channels.length === 0) {
-            data += `#EXTINF:0 tvg-id="1" tvg-chno="1" tvg-name="dizqueTV" tvg-logo="{{host}}/resources/dizquetv.png" group-title="dizqueTV",dizqueTV\n`
+            data += `#EXTINF:0 tvg-id="1" tvg-chno="1" tvg-name="Coax" tvg-logo="{{host}}/resources/coax.png" group-title="Coax",Coax\n`
             data += `{{host}}/setup\n`
         }
         let saveCacheThread = async() => {

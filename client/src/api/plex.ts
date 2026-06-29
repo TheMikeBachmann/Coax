@@ -2,7 +2,7 @@ import type { PlexLibrarySection, PlexPlaylist, PlexResource, PlexServer, Progra
 
 const PLEX_HEADERS = {
   Accept: 'application/json',
-  'X-Plex-Product': 'dizqueTV',
+  'X-Plex-Product': 'Coax',
   'X-Plex-Version': 'Plex OAuth',
   'X-Plex-Client-Identifier': 'rg14zekk3pa5zp4safjwaa8z',
   'X-Plex-Model': 'Plex OAuth',

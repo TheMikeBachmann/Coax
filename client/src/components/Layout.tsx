@@ -19,7 +19,7 @@ export default function Layout() {
         <div className="px-4 py-4 border-b border-gray-700">
           <div className="flex items-center gap-2">
             <Tv size={20} className="text-blue-400" />
-            <span className="font-bold text-white text-lg">dizqueTV</span>
+            <span className="font-bold text-white text-lg">Coax</span>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto py-2">

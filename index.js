@@ -38,7 +38,7 @@ const onShutdown = require("node-graceful-shutdown").onShutdown;
 
 console.log(
 `         \\
-   dizqueTV ${constants.VERSION_NAME}
+   Coax ${constants.VERSION_NAME}
 .------------.
 |:::///### o |
 |:::///###   |
@@ -49,7 +49,7 @@ console.log(
 const NODE = parseInt( process.version.match(/^[^0-9]*(\d+)\..*$/)[1] );
 
 if (NODE < 12) {
-    console.error(`WARNING: Your nodejs version ${process.version} is lower than supported. dizqueTV has been tested best on nodejs 12.16.`);
+    console.error(`WARNING: Your nodejs version ${process.version} is lower than supported. Coax has been tested best on nodejs 12.16.`);
 }
 
 unlockPath = false;
@@ -64,7 +64,7 @@ for (let i = 0, l = process.argv.length; i < l; i++) {
     }
 }
 
-process.env.DATABASE = process.env.DATABASE ||  path.join(".", ".dizquetv")
+process.env.DATABASE = process.env.DATABASE ||  path.join(".", ".coax")
 process.env.PORT = process.env.PORT || 8000
 
 if (!fs.existsSync(process.env.DATABASE)) {
@@ -316,18 +316,18 @@ app.listen(process.env.PORT, () => {
 
 function initDB(db, channelDB) {
     //TODO: this is getting so repetitive, do it better
-    if (!fs.existsSync(process.env.DATABASE + '/images/dizquetv.png')) {
-        let data = fs.readFileSync(path.resolve(path.join(__dirname, 'resources/dizquetv.png')))
-        fs.writeFileSync(process.env.DATABASE + '/images/dizquetv.png', data)
+    if (!fs.existsSync(process.env.DATABASE + '/images/coax.png')) {
+        let data = fs.readFileSync(path.resolve(path.join(__dirname, 'resources/coax.png')))
+        fs.writeFileSync(process.env.DATABASE + '/images/coax.png', data)
     }
     dbMigration.initDB(db, channelDB, __dirname);
     if (!fs.existsSync(process.env.DATABASE + '/font.ttf')) {
         let data = fs.readFileSync(path.resolve(path.join(__dirname, 'resources/font.ttf')))
         fs.writeFileSync(process.env.DATABASE + '/font.ttf', data)
     }
-    if (!fs.existsSync(process.env.DATABASE + '/images/dizquetv.png')) {
-        let data = fs.readFileSync(path.resolve(path.join(__dirname, 'resources/dizquetv.png')))
-        fs.writeFileSync(process.env.DATABASE + '/images/dizquetv.png', data)
+    if (!fs.existsSync(process.env.DATABASE + '/images/coax.png')) {
+        let data = fs.readFileSync(path.resolve(path.join(__dirname, 'resources/coax.png')))
+        fs.writeFileSync(process.env.DATABASE + '/images/coax.png', data)
     }
     if (!fs.existsSync(process.env.DATABASE + '/images/generic-error-screen.png')) {
         let data = fs.readFileSync(path.resolve(path.join(__dirname, 'resources/generic-error-screen.png')))

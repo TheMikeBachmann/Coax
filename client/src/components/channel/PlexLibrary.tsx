@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { X, Search, Plus, ChevronRight, ArrowLeft, Loader2, ChevronsRight } from 'lucide-react'
-import { dizquetv } from '../../api/dizquetv'
+import { coax } from '../../api/coax'
 import { plexApi } from '../../api/plex'
 import type { PlexMeta } from '../../api/plex'
 import { useToast } from '../Toast'
@@ -73,7 +73,7 @@ export default function PlexLibrary({ onAdd, onClose }: Props) {
   const [selected, setSelected] = useState<Map<string, PlexMeta>>(new Map())
 
   useEffect(() => {
-    Promise.all([dizquetv.getPlexServers(), dizquetv.getAllShowsInfo()]).then(([srvs, shws]) => {
+    Promise.all([coax.getPlexServers(), coax.getAllShowsInfo()]).then(([srvs, shws]) => {
       setServers(srvs)
       setShows(shws)
       if (srvs.length > 0) setSource({ type: 'plex', server: srvs[0] })
@@ -137,7 +137,7 @@ export default function PlexLibrary({ onAdd, onClose }: Props) {
   const loadShow = useCallback(async (id: string) => {
     setLoading(true)
     try {
-      const show = await dizquetv.getShow(id)
+      const show = await coax.getShow(id)
       setItems(show.content as unknown as PlexMeta[])
     } catch { addToast('Failed to load custom show', 'error') }
     setLoading(false)

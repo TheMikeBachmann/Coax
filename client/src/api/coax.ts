@@ -25,7 +25,7 @@ function json(method: string, body: unknown): RequestInit {
   return { method, body: JSON.stringify(body) }
 }
 
-export const dizquetv = {
+export const coax = {
   getVersion: () => api<VersionInfo>('/api/version'),
 
   // Plex servers

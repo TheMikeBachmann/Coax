@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Plus, Edit2, Trash2, Tv } from 'lucide-react'
-import { dizquetv } from '../api/dizquetv'
+import { coax } from '../api/coax'
 import { useToast } from '../components/Toast'
 import ChannelConfig from '../components/channel/ChannelConfig'
 import type { Channel } from '../types'
@@ -19,7 +19,7 @@ export default function Channels() {
 
   const load = async () => {
     try {
-      const data = await dizquetv.getChannels()
+      const data = await coax.getChannels()
       setChannels(data.sort((a, b) => a.number - b.number))
     } catch {
       addToast('Failed to load channels', 'error')
@@ -32,7 +32,7 @@ export default function Channels() {
 
   const openEdit = async (ch: Channel) => {
     try {
-      const full = await dizquetv.getChannel(ch.number)
+      const full = await coax.getChannel(ch.number)
       setEditing(full)
     } catch {
       addToast('Failed to load channel', 'error')
@@ -42,7 +42,7 @@ export default function Channels() {
   const deleteChannel = async (number: number) => {
     if (!confirm(`Delete channel ${number}?`)) return
     try {
-      await dizquetv.removeChannel({ number })
+      await coax.removeChannel({ number })
       addToast('Channel deleted', 'success')
       load()
     } catch {

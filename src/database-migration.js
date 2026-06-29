@@ -53,7 +53,7 @@ const { v4: uuidv4 } = require('uuid');
 function createDeviceId(db) {
     let deviceId = db['client-id'].find();
     if (deviceId.length == 0) {
-        let clientId = uuidv4().replace(/-/g,"").slice(0,16) + "-org-dizquetv-" + process.platform
+        let clientId = uuidv4().replace(/-/g,"").slice(0,16) + "-org-coax-" + process.platform
         let dev = {
             clientId: clientId,
         }
@@ -793,13 +793,13 @@ function moveBackup(path) {
 }
 
 function reAddIcon(dir) {
-    moveBackup('/images/dizquetv.png');
-    let data = fs.readFileSync(path.resolve(path.join(dir, 'resources/dizquetv.png')));
-    fs.writeFileSync(process.env.DATABASE + '/images/dizquetv.png', data);
+    moveBackup('/images/coax.png');
+    let data = fs.readFileSync(path.resolve(path.join(dir, 'resources/coax.png')));
+    fs.writeFileSync(process.env.DATABASE + '/images/coax.png', data);
 
     if (fs.existsSync(`${process.env.DATABASE}/images/pseudotv.png`) ) {
         moveBackup('/images/pseudotv.png');
-        let data = fs.readFileSync(path.resolve(path.join(dir, 'resources/dizquetv.png')));
+        let data = fs.readFileSync(path.resolve(path.join(dir, 'resources/coax.png')));
         fs.writeFileSync(process.env.DATABASE + '/images/pseudotv.png', data);
     }
 
@@ -833,7 +833,7 @@ function addImageCache(db) {
 function addGroupTitle() {
 
     function migrateChannel(channel) {
-        channel.groupTitle= "dizqueTV";
+        channel.groupTitle= "Coax";
         return channel;
     }
 

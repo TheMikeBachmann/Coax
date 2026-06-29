@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, CheckCircle, XCircle, Save, RotateCcw, LogIn } from 'lucide-react'
-import { dizquetv } from '../../api/dizquetv'
+import { coax } from '../../api/coax'
 import { plexApi } from '../../api/plex'
 import { useToast } from '../Toast'
 import type { PlexServer, PlexSettings } from '../../types'
@@ -26,8 +26,8 @@ function ServerForm({ initial, onSave, onCancel }: {
     setChecking(true)
     try {
       const r = initial
-        ? await dizquetv.checkExistingPlexServer(form.name)
-        : await dizquetv.checkNewPlexServer(form)
+        ? await coax.checkExistingPlexServer(form.name)
+        : await coax.checkNewPlexServer(form)
       addToast(r.status === 1 ? 'Connection successful' : 'Connection failed', r.status === 1 ? 'success' : 'error')
     } catch { addToast('Check failed', 'error') }
     setChecking(false)
@@ -101,7 +101,7 @@ export default function PlexSettings() {
   const [saving, setSaving] = useState(false)
 
   const load = async () => {
-    const [srvs, cfg] = await Promise.all([dizquetv.getPlexServers(), dizquetv.getPlexSettings()])
+    const [srvs, cfg] = await Promise.all([coax.getPlexServers(), coax.getPlexSettings()])
     setServers(srvs)
     setSettings(cfg)
   }
@@ -116,7 +116,7 @@ export default function PlexSettings() {
 
   const addServer = async (s: PlexServer) => {
     try {
-      await dizquetv.addPlexServer(s)
+      await coax.addPlexServer(s)
       setShowAdd(false)
       await load()
       addToast('Plex server added', 'success')
@@ -125,7 +125,7 @@ export default function PlexSettings() {
 
   const updateServer = async (s: PlexServer) => {
     try {
-      await dizquetv.updatePlexServer(s)
+      await coax.updatePlexServer(s)
       setEditingServer(null)
       await load()
       addToast('Plex server updated', 'success')
@@ -135,7 +135,7 @@ export default function PlexSettings() {
   const removeServer = async (name: string) => {
     if (!confirm(`Remove server "${name}"?`)) return
     try {
-      await dizquetv.removePlexServer(name)
+      await coax.removePlexServer(name)
       await load()
       addToast('Server removed', 'info')
     } catch { addToast('Failed to remove server', 'error') }
@@ -145,7 +145,7 @@ export default function PlexSettings() {
     if (!settings) return
     setSaving(true)
     try {
-      await dizquetv.updatePlexSettings(settings)
+      await coax.updatePlexSettings(settings)
       addToast('Plex settings saved', 'success')
     } catch { addToast('Failed to save', 'error') }
     setSaving(false)
@@ -232,7 +232,7 @@ export default function PlexSettings() {
             <button onClick={saveSettings} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded font-medium text-sm disabled:opacity-50">
               <Save size={16} /> {saving ? 'Saving…' : 'Save'}
             </button>
-            <button onClick={() => dizquetv.resetPlexSettings().then(setSettings)} className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded font-medium text-sm">
+            <button onClick={() => coax.resetPlexSettings().then(setSettings)} className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded font-medium text-sm">
               <RotateCcw size={16} /> Reset
             </button>
           </div>
