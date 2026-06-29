@@ -1,11 +1,9 @@
-name: Docker Build
+name: Publish Docker Image
 
 on:
-  workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
+  push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -15,7 +13,7 @@ jobs:
       packages: write
 
     steps:
-    - name: Checkout Repository
+    - name: Checkout
       uses: actions/checkout@v4
 
     - name: Set up Docker Buildx
@@ -33,6 +31,6 @@ jobs:
       with:
         context: .
         push: true
-        tags: ghcr.io/themikebachmann/coax:${{ inputs.tag }}
+        tags: ghcr.io/themikebachmann/coax:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
