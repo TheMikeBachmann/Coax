@@ -1,6 +1,8 @@
-FROM node:18-alpine
+FROM node:18-slim
 
-RUN apk add --no-cache ffmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/node/app
 
