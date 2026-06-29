@@ -14,7 +14,7 @@ const N_SLOTS = 4
 const SLOT_W = Math.floor((W - CH_COL) / N_SLOTS)
 const SCROLL_PX_PER_SEC = 38
 const REFRESH_SEC = 30
-const FPS = 25
+const FPS = 10
 const FRAME_MS = 1000 / FPS
 const FRAMES_PER_REFRESH = FPS * REFRESH_SEC
 
@@ -70,7 +70,7 @@ function resolveIcon(icon, port) {
 
 // Builds a tall canvas: HEADER_H header + all channel rows.
 // Returns { canvas, rowsH, cycleH }.
-async function buildGuideCanvas(channels, lineups, now, port, tz) {
+async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     const slots = getSlotsAt(now, tz)
 
     // Repeat the channel list enough times that the canvas is always taller than
@@ -88,18 +88,6 @@ async function buildGuideCanvas(channels, lineups, now, port, tz) {
 
     ctx.fillStyle = '#0a0a3a'
     ctx.fillRect(0, 0, W, totalH)
-
-    // Pre-load channel icons in parallel; failures are silently skipped.
-    const iconMap = {}
-    await Promise.allSettled(
-        channels
-            .filter(ch => ch.icon)
-            .map(async ch => {
-                const url = resolveIcon(ch.icon, port)
-                if (!url) return
-                try { iconMap[ch.number] = await loadImage(url) } catch {}
-            })
-    )
 
     // ── Header bar ──
     ctx.fillStyle = '#1a1a6a'
@@ -240,6 +228,7 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         let guideCycleH = VISIBLE_CH_H  // scroll modulo: one full channel-list repetition
         let refreshing = false
         let frameIndex = 0
+        const iconCache = {}
 
         async function refreshGuide() {
             if (refreshing) return
@@ -267,7 +256,23 @@ module.exports = function guideChannelHandler(channelService, db, port) {
                 } catch (e) {
                     console.error('[guide-channel] Failed to fetch data:', e.message)
                 }
-                const result = await buildGuideCanvas(channels, lineups, now, port, tz)
+
+                // Load icons only for channels not already cached
+                await Promise.allSettled(
+                    channels.filter(ch => ch.icon && !iconCache[ch.number]).map(async ch => {
+                        const url = resolveIcon(ch.icon, port)
+                        if (!url) return
+                        try { iconCache[ch.number] = await loadImage(url) } catch {}
+                    })
+                )
+                // Evict icons for channels no longer present
+                const activeNums = new Set(channels.map(ch => ch.number))
+                for (const num of Object.keys(iconCache)) {
+                    if (!activeNums.has(parseInt(num))) delete iconCache[num]
+                }
+
+                guideCanvas = null  // release old native memory before allocating new canvas
+                const result = await buildGuideCanvas(channels, lineups, now, port, tz, iconCache)
                 guideCanvas = result.canvas
                 guideCycleH = result.cycleH
             } catch (e) {
