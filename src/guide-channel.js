@@ -14,7 +14,7 @@ const N_SLOTS = 4
 const SLOT_W = Math.floor((W - CH_COL) / N_SLOTS)
 const SCROLL_PX_PER_SEC = 38
 const REFRESH_SEC = 30
-const FPS = 10
+const FPS = 25
 const FRAME_MS = 1000 / FPS
 const FRAMES_PER_REFRESH = FPS * REFRESH_SEC
 
@@ -346,6 +346,12 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             // Also refresh every REFRESH_SEC frames
             if (frameIndex > 0 && frameIndex % FRAMES_PER_REFRESH === 0) {
                 refreshGuide().catch(e => console.error('[guide-channel] periodic refresh error:', e.message))
+            }
+
+            // getImageData() allocates native memory outside V8's heap; GC won't
+            // collect it unless we nudge it.  Once per second is negligible overhead.
+            if (frameIndex % FPS === 0 && typeof global.gc === 'function') {
+                global.gc()
             }
 
             let frame
