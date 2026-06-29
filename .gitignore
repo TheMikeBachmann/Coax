@@ -5,4 +5,3 @@ bin/
 .dizquetv/
 web/public/bundle.js
 *.orig
-package-lock.json
