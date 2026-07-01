@@ -188,11 +188,13 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         // Single long-running ffmpeg fed raw RGBA frames via stdin.
         // No process restarts = no PTS discontinuities.
         const ff = spawn(ffmpegPath, [
+            '-thread_queue_size', '4',
             '-f', 'rawvideo',
             '-pixel_format', 'rgba',
             '-video_size', `${W}x${H}`,
             '-framerate', String(FPS),
             '-i', 'pipe:0',
+            '-thread_queue_size', '4',
             '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
             '-map', '0:v',
             '-map', '1:a',
@@ -200,15 +202,30 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             '-preset', 'ultrafast',
             ...(vEncoder === 'libx264' ? ['-tune', 'zerolatency'] : []),
             '-g', String(FPS),
+            '-maxrate', '2000k',
+            '-bufsize', '4000k',
             '-c:a', aEncoder,
+            '-flush_packets', '1',
             '-f', 'mpegts', 'pipe:1',
         ], { stdio: ['pipe', 'pipe', 'pipe'] })
 
         ff.stdout.pipe(res, { end: false })
+        console.log('[guide-channel] gc available:', typeof global.gc === 'function')
+
         let stderrBuf = ''
-        ff.stderr.on('data', d => { stderrBuf += d })
+        ff.stderr.on('data', d => {
+            stderrBuf += d
+            if (stderrBuf.length > 10000) stderrBuf = stderrBuf.slice(-5000)
+        })
+
+        const memLogger = setInterval(() => {
+            if (stopped) { clearInterval(memLogger); return }
+            const m = process.memoryUsage()
+            console.log(`[guide-channel] frame=${frameIndex} rss=${Math.round(m.rss/1e6)}MB heap=${Math.round(m.heapUsed/1e6)}MB ext=${Math.round(m.external/1e6)}MB stdinBuf=${ff.stdin.writableLength}`)
+        }, 15000)
         ff.on('close', code => {
             stopped = true
+            clearInterval(memLogger)
             if (code !== 0 && stderrBuf) console.error('[guide-channel] ffmpeg exit', code, stderrBuf.slice(-500))
         })
         ff.on('error', err => {

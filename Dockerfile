@@ -17,4 +17,4 @@ EXPOSE 8000
 ENV DATABASE=/.coax
 ENV PORT=8000
 
-CMD ["node", "index.js"]
+CMD ["node", "--expose-gc", "index.js"]
