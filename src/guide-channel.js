@@ -10,7 +10,7 @@ const H = 480
 const SAFE_L = 20, SAFE_R = 20
 const GW = W - SAFE_L - SAFE_R     // 664 — content width within overscan margins
 const CH_COL = 96
-const HDR_H = 4                     // thin top strip (title bar removed)
+const HDR_H = 30                    // top safe-area margin (title bar removed)
 const TIME_H = 24
 const HEADER_H = HDR_H + TIME_H    // 28
 const VISIBLE_CH_H = H - HEADER_H  // 452
@@ -188,7 +188,7 @@ async function buildGuideCanvas(channels, lineups, now, tz, iconMap) {
     const ctx    = canvas.getContext('2d')
     ctx.fillStyle = '#0a0a3a'; ctx.fillRect(0, 0, W, totalH)
     ctx.translate(SAFE_L, 0)
-    drawTimeBar(ctx, HDR_H, slots, tz, hhmm(now, tz))
+    drawTimeBar(ctx, HDR_H, slots, tz, hhmm(slots[0], tz))
     drawGridLines(ctx, HDR_H, totalH - HDR_H)
     if (channels.length > 0) {
         drawChannelRows(ctx, channels, lineups, HEADER_H, rowsH, windowStartMs, windowEndMs, iconMap)
