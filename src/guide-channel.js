@@ -67,9 +67,8 @@ function resolveIcon(icon, port) {
     return `http://localhost:${port}${icon.startsWith('/') ? '' : '/'}${icon}`
 }
 
-// Renders the full guide to a temp PNG file for FFmpeg to read.
-// Returns { tmpPath, rowsH, cycleH, totalH }.
-// The canvas is discarded after PNG export so no Skia/Rust memory lingers.
+// Renders the full guide to a temp PNG file.
+// Returns { pngPath, rowsH, cycleH, totalH }.
 async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     const slots = getSlotsAt(now, tz)
 
@@ -85,7 +84,6 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     ctx.fillStyle = '#0a0a3a'
     ctx.fillRect(0, 0, W, totalH)
 
-    // ── Header bar ──
     ctx.fillStyle = '#1a1a6a'
     ctx.fillRect(0, 0, W, HDR_H)
     ctx.fillStyle = 'yellow'
@@ -94,7 +92,6 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     ctx.textBaseline = 'middle'
     ctx.fillText('PROGRAM GUIDE', 8, HDR_H / 2)
 
-    // ── Time-slot bar ──
     ctx.fillStyle = '#0a0a50'
     ctx.fillRect(0, HDR_H, W, TIME_H)
 
@@ -104,7 +101,6 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
         ctx.fillRect(CH_COL + i * SLOT_W, HDR_H, 1, totalH - HDR_H)
     }
 
-    // ── Channel rows ──
     for (let rep = 0; rep < reps; rep++) {
         for (let r = 0; r < channels.length; r++) {
             const ch = channels[r]
@@ -161,12 +157,57 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
 
     drawTimeLabels(ctx, slots, HDR_H + TIME_H / 2, tz)
 
-    // Write to a temp PNG file; FFmpeg reads this with -loop 1 and its
-    // scroll filter handles frame generation — no raw video pipe needed.
     const pngBuf = canvas.toBuffer('image/png')
-    const tmpPath = path.join(os.tmpdir(), `coax-guide-${Date.now()}-${Math.random().toString(36).slice(2)}.png`)
-    fs.writeFileSync(tmpPath, pngBuf)
-    return { tmpPath, rowsH, cycleH, totalH }
+    const base = path.join(os.tmpdir(), `coax-guide-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    const pngPath = base + '.png'
+    fs.writeFileSync(pngPath, pngBuf)
+    return { pngPath, base, rowsH, cycleH, totalH }
+}
+
+// Pre-encodes exactly one seamless scroll cycle to an MPEG-TS file.
+// The channel rows in the guide canvas repeat at intervals of cycleH pixels,
+// so scrolling cycleH pixels brings the view back to the identical content.
+// Streaming this file on a loop with -c copy is near-zero CPU.
+function encodeGuideLoop({ pngPath, tsPath, rowsH, cycleH, ffmpegPath, vEncoder, aEncoder }) {
+    // Duration of one seamless cycle
+    const loopDuration = cycleH / SCROLL_PX_PER_SEC
+    const scrollSpeed = (SCROLL_PX_PER_SEC / (FPS * rowsH)).toFixed(8)
+
+    const filterGraph = [
+        `[0:v]split=2[a][b]`,
+        `[a]crop=${W}:${HEADER_H}:0:0[hdr]`,
+        `[b]crop=${W}:${rowsH}:0:${HEADER_H},scroll=v=${scrollSpeed}:h=0,crop=${W}:${VISIBLE_CH_H}:0:0[rows]`,
+        `[hdr][rows]vstack[out]`,
+    ].join(';')
+
+    return new Promise((resolve, reject) => {
+        const ff = spawn(ffmpegPath, [
+            '-r', String(FPS),
+            '-loop', '1',
+            '-i', pngPath,
+            '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+            '-filter_complex', filterGraph,
+            '-map', '[out]',
+            '-map', '1:a',
+            '-c:v', vEncoder,
+            '-preset', 'ultrafast',
+            ...(vEncoder === 'libx264' ? ['-tune', 'zerolatency'] : []),
+            '-g', String(FPS),
+            '-maxrate', '2000k',
+            '-bufsize', '4000k',
+            '-c:a', aEncoder,
+            '-t', String(loopDuration),
+            '-y', tsPath,
+        ], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+        let stderr = ''
+        ff.stderr.on('data', d => { stderr += d; if (stderr.length > 5000) stderr = stderr.slice(-2500) })
+        ff.on('close', code => {
+            if (code === 0) resolve()
+            else reject(new Error(`guide loop encode failed (${code}): ${stderr.slice(-300)}`))
+        })
+        ff.on('error', reject)
+    })
 }
 
 module.exports = function guideChannelHandler(channelService, db, port) {
@@ -179,17 +220,21 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         })
 
         const tz = req.query.tz || 'UTC'
-
         const ffmpegSettings = db['ffmpeg-settings'].find()[0] || {}
         const ffmpegPath = ffmpegSettings.ffmpegPath || 'ffmpeg'
         const vEncoder = ffmpegSettings.videoEncoder || 'libx264'
         const aEncoder = ffmpegSettings.audioEncoder || 'aac'
 
-        // Build guide canvas and fetch channel data once per session.
-        const iconCache = {}
-        let tmpPath = null
+        let pngPath = null
+        let tsPath = null
+
+        const cleanup = () => {
+            if (pngPath) { try { fs.unlinkSync(pngPath) } catch {} pngPath = null }
+            if (tsPath)  { try { fs.unlinkSync(tsPath)  } catch {} tsPath  = null }
+        }
 
         try {
+            // Fetch channel data
             const now = new Date()
             const from = now.toISOString()
             const to = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
@@ -213,6 +258,8 @@ module.exports = function guideChannelHandler(channelService, db, port) {
                 console.error('[guide-channel] Failed to fetch data:', e.message)
             }
 
+            // Load channel icons
+            const iconCache = {}
             await Promise.allSettled(
                 channels.filter(ch => ch.icon).map(async ch => {
                     const url = resolveIcon(ch.icon, port)
@@ -221,63 +268,45 @@ module.exports = function guideChannelHandler(channelService, db, port) {
                 })
             )
 
-            const result = await buildGuideCanvas(channels, lineups, now, port, tz, iconCache)
-            tmpPath = result.tmpPath
+            // Render guide to PNG, then pre-encode one seamless scroll cycle.
+            const built = await buildGuideCanvas(channels, lineups, now, port, tz, iconCache)
+            pngPath = built.pngPath
+            tsPath  = built.base + '.ts'
 
-            // FFmpeg reads the static PNG with -loop 1 and its scroll filter
-            // advances the viewport each frame internally.  P-frames for a slowly
-            // scrolling scene are near-free (just a vertical motion vector), so
-            // CPU is a fraction of what raw-video-pipe encoding costs.
-            //
-            // Filter graph:
-            //   split the full guide image into header (pinned) and channel rows
-            //   (scrolling), crop the visible window, stack them back together.
-            const scrollSpeed = (SCROLL_PX_PER_SEC / (FPS * result.rowsH)).toFixed(8)
-            const filterGraph = [
-                `[0:v]split=2[a][b]`,
-                `[a]crop=${W}:${HEADER_H}:0:0[hdr]`,
-                `[b]crop=${W}:${result.rowsH}:0:${HEADER_H},scroll=v=${scrollSpeed}:h=0,crop=${W}:${VISIBLE_CH_H}:0:0[rows]`,
-                `[hdr][rows]vstack[out]`,
-            ].join(';')
+            await encodeGuideLoop({
+                pngPath, tsPath,
+                rowsH: built.rowsH,
+                cycleH: built.cycleH,
+                ffmpegPath, vEncoder, aEncoder,
+            })
 
+            // Stream the pre-encoded loop with -c copy (near-zero CPU).
+            // -re paces output to real-time so we don't flood client buffers.
+            // -stream_loop -1 loops indefinitely with monotonically increasing PTS.
             const ff = spawn(ffmpegPath, [
-                '-r', String(FPS),
-                '-loop', '1',
-                '-i', tmpPath,
-                '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
-                '-filter_complex', filterGraph,
-                '-map', '[out]',
-                '-map', '1:a',
-                '-c:v', vEncoder,
-                '-preset', 'ultrafast',
-                ...(vEncoder === 'libx264' ? ['-tune', 'zerolatency'] : []),
-                '-g', String(FPS),
-                '-maxrate', '2000k',
-                '-bufsize', '4000k',
-                '-c:a', aEncoder,
-                '-flush_packets', '1',
+                '-re',
+                '-stream_loop', '-1',
+                '-i', tsPath,
+                '-c', 'copy',
                 '-f', 'mpegts', 'pipe:1',
             ], { stdio: ['pipe', 'pipe', 'pipe'] })
 
             ff.stdout.pipe(res, { end: false })
 
             let stderrBuf = ''
-            ff.stderr.on('data', d => {
-                stderrBuf += d
-                if (stderrBuf.length > 10000) stderrBuf = stderrBuf.slice(-5000)
-            })
+            ff.stderr.on('data', d => { stderrBuf += d; if (stderrBuf.length > 5000) stderrBuf = stderrBuf.slice(-2500) })
             ff.on('close', code => {
-                if (code !== 0 && stderrBuf) console.error('[guide-channel] ffmpeg exit', code, stderrBuf.slice(-500))
+                if (code !== 0 && stderrBuf) console.error('[guide-channel] stream exit', code, stderrBuf.slice(-300))
             })
-            ff.on('error', err => console.error('[guide-channel] ffmpeg error:', err.message))
+            ff.on('error', err => console.error('[guide-channel] stream error:', err.message))
 
             res.on('close', () => {
                 try { ff.kill() } catch {}
-                if (tmpPath) { try { fs.unlinkSync(tmpPath) } catch {} }
+                cleanup()
             })
         } catch (e) {
             console.error('[guide-channel] startup error:', e.message)
-            if (tmpPath) { try { fs.unlinkSync(tmpPath) } catch {} }
+            cleanup()
             res.end()
         }
     }
