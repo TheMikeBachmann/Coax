@@ -71,6 +71,10 @@ function resolveIcon(icon, port) {
 // Returns { pngPath, rowsH, cycleH, totalH }.
 async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     const slots = getSlotsAt(now, tz)
+    const windowStartMs = slots[0].getTime()
+    const windowEndMs   = windowStartMs + N_SLOTS * 30 * 60 * 1000
+    const windowDurMs   = windowEndMs - windowStartMs
+    const contentW      = W - CH_COL  // 608px
 
     const cycleH = channels.length > 0 ? channels.length * ROW_H : VISIBLE_CH_H
     const reps = channels.length > 0
@@ -132,24 +136,42 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
                 ctx.fillText(String(ch.name || '').substring(0, 9), 3, y + 18)
             }
 
-            const lineup = lineups[ch.number] || []
-            for (let s = 0; s < N_SLOTS; s++) {
-                const slotStart = slots[s].getTime()
-                const slotEnd = slotStart + 30 * 60 * 1000
-                const prog = lineup.find(p => {
-                    const ps = new Date(p.start).getTime()
-                    const pe = new Date(p.stop).getTime()
-                    return ps < slotEnd && pe > slotStart
-                })
-                const px = CH_COL + s * SLOT_W + 3
+            const lineup = (lineups[ch.number] || []).filter(p => !p.isOffline)
+            const visibleProgs = lineup.filter(p => {
+                const ps = new Date(p.start).getTime()
+                const pe = new Date(p.stop).getTime()
+                return ps < windowEndMs && pe > windowStartMs
+            })
+
+            for (const prog of visibleProgs) {
+                const ps = new Date(prog.start).getTime()
+                const pe = new Date(prog.stop).getTime()
+                const x1 = CH_COL + Math.round((Math.max(ps, windowStartMs) - windowStartMs) / windowDurMs * contentW)
+                const x2 = CH_COL + Math.round((Math.min(pe, windowEndMs)   - windowStartMs) / windowDurMs * contentW)
+                const cellW = x2 - x1
+                if (cellW < 2) continue
+
+                // Left border for this program cell
+                ctx.fillStyle = '#3344aa'
+                ctx.fillRect(x1, y, 1, ROW_H - 1)
+
+                const textX = x1 + 3
+                const textW = cellW - 4
+                if (textW < 8) continue
+
+                // ~6.6px per character at 11px monospace
+                const maxTitle = Math.floor(textW / 6.6)
                 ctx.fillStyle = 'white'
                 ctx.font = '11px monospace'
                 ctx.textBaseline = 'top'
-                ctx.fillText(String(prog?.title || 'Off Air').substring(0, 16), px, y + 8)
-                if (prog?.sub?.season) {
+                ctx.textAlign = 'left'
+                ctx.fillText(String(prog.title || '').substring(0, maxTitle), textX, y + 8)
+
+                if (prog.sub?.season && textW > 50) {
+                    const maxEp = Math.floor(textW / 6)
                     ctx.fillStyle = '#888888'
                     ctx.font = '9px monospace'
-                    ctx.fillText(`S${prog.sub.season}E${prog.sub.episode}`.substring(0, 8), px, y + 22)
+                    ctx.fillText(`S${prog.sub.season}E${prog.sub.episode}`.substring(0, maxEp), textX, y + 22)
                 }
             }
         }
@@ -236,8 +258,10 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         try {
             // Fetch channel data
             const now = new Date()
-            const from = now.toISOString()
-            const to = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
+            // Fetch from 30 min before now so programs that started before the
+            // nearest half-hour boundary are included in the visible window.
+            const from = new Date(now.getTime() - 30 * 60 * 1000).toISOString()
+            const to = new Date(now.getTime() + N_SLOTS * 30 * 60 * 1000).toISOString()
             let channels = []
             let lineups = {}
             try {
