@@ -9,10 +9,15 @@ import type { PlexServer, PlexLibrarySection, Program, CustomShowInfo } from '..
 interface Props {
   programs?: Program[]
   onAdd: (programs: Program[]) => void
-  onRemove?: (idx: number) => void
+  onRemoveWhere?: (pred: (p: Program) => boolean) => void
   onClear?: () => void
   onClose: () => void
 }
+
+type ManageView =
+  | { type: 'top' }
+  | { type: 'show'; showTitle: string }
+  | { type: 'season'; showTitle: string; season: number }
 
 function programLabel(p: Program) {
   if (p.isOffline) return p.flex ? 'Flex' : 'Offline'
@@ -27,6 +32,10 @@ function msToHMS(ms: number) {
   const m = Math.floor((ms % 3600000) / 60000)
   const s = Math.floor((ms % 60000) / 1000)
   return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`
+}
+
+function epKey(p: Program) {
+  return p.ratingKey ?? `${p.file ?? ''}.${p.season ?? 0}.${p.episode ?? 0}`
 }
 
 type Source = { type: 'plex'; server: PlexServer } | { type: 'show'; id: string; name: string }
@@ -73,9 +82,10 @@ function itemIcon(server: PlexServer, meta: PlexMeta): string | undefined {
   return thumb ? `${server.uri}${thumb}?X-Plex-Token=${server.accessToken}` : undefined
 }
 
-export default function PlexLibrary({ programs = [], onAdd, onRemove, onClear, onClose }: Props) {
+export default function PlexLibrary({ programs = [], onAdd, onRemoveWhere, onClear, onClose }: Props) {
   const { addToast } = useToast()
   const [tab, setTab] = useState<'browse' | 'manage'>('browse')
+  const [manageView, setManageView] = useState<ManageView>({ type: 'top' })
   const [servers, setServers] = useState<PlexServer[]>([])
   const [shows, setShows] = useState<CustomShowInfo[]>([])
   const [source, setSource] = useState<Source | null>(null)
@@ -245,6 +255,45 @@ export default function PlexLibrary({ programs = [], onAdd, onRemove, onClear, o
 
   const totalDuration = programs.reduce((s, p) => s + p.duration, 0)
 
+  // Grouped data for the manage hierarchy
+  const manageShowMap = new Map<string, Program[]>()
+  const manageMoviesAll: Program[] = []
+  const manageOthers: Program[] = []
+  for (const p of programs) {
+    if (p.type === 'episode' && p.showTitle) {
+      const arr = manageShowMap.get(p.showTitle) ?? []; manageShowMap.set(p.showTitle, arr); arr.push(p)
+    } else if (p.type === 'movie') {
+      manageMoviesAll.push(p)
+    } else {
+      manageOthers.push(p)
+    }
+  }
+  const seenMovieKeys = new Set<string>()
+  const manageUniqueMovies = manageMoviesAll.filter(m => { const k = epKey(m); if (seenMovieKeys.has(k)) return false; seenMovieKeys.add(k); return true })
+
+  // Season list when drilling into a show
+  const manageSeasons: Array<[number, Program[]]> = manageView.type === 'show'
+    ? (() => {
+        const seasonMap = new Map<number, Program[]>()
+        for (const ep of manageShowMap.get(manageView.showTitle) ?? []) {
+          const s = ep.season ?? 0; const arr = seasonMap.get(s) ?? []; seasonMap.set(s, arr); arr.push(ep)
+        }
+        return Array.from(seasonMap.entries()).sort(([a], [b]) => a - b)
+      })()
+    : []
+
+  // Episode list when drilling into a season
+  const manageEpisodes: Program[] = manageView.type === 'season'
+    ? (() => {
+        const { showTitle, season } = manageView
+        const seenEp = new Set<string>()
+        return (manageShowMap.get(showTitle) ?? [])
+          .filter(p => p.season === season)
+          .filter(p => { const k = epKey(p); if (seenEp.has(k)) return false; seenEp.add(k); return true })
+          .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0))
+      })()
+    : []
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="bg-gray-800 rounded-xl shadow-2xl border border-gray-700 w-full max-w-4xl h-[85vh] flex flex-col">
@@ -252,14 +301,14 @@ export default function PlexLibrary({ programs = [], onAdd, onRemove, onClear, o
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
           <div className="flex items-center gap-4">
             <h2 className="text-lg font-semibold">Content</h2>
-            {onRemove && (
+            {onRemoveWhere && (
               <div className="flex rounded border border-gray-600 overflow-hidden text-sm">
                 <button
                   onClick={() => setTab('browse')}
                   className={`px-3 py-1 ${tab === 'browse' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
                 >Browse</button>
                 <button
-                  onClick={() => setTab('manage')}
+                  onClick={() => { setTab('manage'); setManageView({ type: 'top' }) }}
                   className={`px-3 py-1 border-l border-gray-600 ${tab === 'manage' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
                 >Manage · {programs.length}</button>
               </div>
@@ -268,28 +317,169 @@ export default function PlexLibrary({ programs = [], onAdd, onRemove, onClear, o
           <button onClick={onClose} className="p-1.5 hover:bg-gray-700 rounded"><X size={18} /></button>
         </div>
 
-        {/* Manage tab */}
-        {tab === 'manage' && (
+        {/* Manage tab — hierarchical show → season → episode browser */}
+        {tab === 'manage' && onRemoveWhere && (
           <div className="flex flex-col flex-1 min-h-0">
-            <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between">
-              <span className="text-sm text-gray-400">{programs.length} programs · {msToHMS(totalDuration)}</span>
-              {programs.length > 0 && onClear && (
-                <button onClick={onClear} className="text-xs text-red-400 hover:text-red-300">Clear all</button>
+            {/* Navigation bar */}
+            <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-2 min-h-[41px]">
+              {manageView.type !== 'top' && (
+                <button
+                  onClick={() => setManageView(
+                    manageView.type === 'season'
+                      ? { type: 'show', showTitle: manageView.showTitle }
+                      : { type: 'top' }
+                  )}
+                  className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white shrink-0">
+                  <ArrowLeft size={14} />
+                </button>
+              )}
+              {manageView.type === 'top' ? (
+                <>
+                  <span className="text-sm text-gray-400 flex-1">{programs.length} programs · {msToHMS(totalDuration)}</span>
+                  {programs.length > 0 && onClear && (
+                    <button onClick={onClear} className="text-xs text-red-400 hover:text-red-300 shrink-0">Clear all</button>
+                  )}
+                </>
+              ) : (
+                <div className="flex-1 min-w-0 text-sm">
+                  {manageView.type === 'season' && (
+                    <span className="text-gray-400">{manageView.showTitle} / </span>
+                  )}
+                  <span className="font-medium text-gray-100">
+                    {manageView.type === 'show' ? manageView.showTitle : `Season ${manageView.season}`}
+                  </span>
+                </div>
               )}
             </div>
+
+            {/* Content list */}
             <div className="flex-1 overflow-y-auto">
-              {programs.length === 0 ? (
-                <div className="flex items-center justify-center h-32 text-gray-500 text-sm">No programs yet</div>
-              ) : programs.map((prog, i) => (
-                <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-700/50 hover:bg-gray-700/30 group">
-                  <span className="text-xs text-gray-500 w-6 shrink-0 text-right">{i + 1}</span>
-                  <span className="flex-1 text-sm text-gray-200 truncate">{programLabel(prog)}</span>
-                  <span className="text-xs text-gray-500 shrink-0">{msToHMS(prog.duration)}</span>
-                  <button onClick={() => onRemove?.(i)} className="p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:text-red-300 shrink-0">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+
+              {/* Top level: shows, movies, other */}
+              {manageView.type === 'top' && (
+                <>
+                  {programs.length === 0 && (
+                    <div className="flex items-center justify-center h-32 text-gray-500 text-sm">No programs yet</div>
+                  )}
+
+                  {manageShowMap.size > 0 && (
+                    <>
+                      {(manageShowMap.size > 1 || manageUniqueMovies.length > 0 || manageOthers.length > 0) && (
+                        <div className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-900/30">Shows</div>
+                      )}
+                      {Array.from(manageShowMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([showTitle, eps]) => {
+                        const uniqueCount = new Set(eps.map(epKey)).size
+                        return (
+                          <div key={showTitle} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-700/50 hover:bg-gray-700/30 group">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm text-gray-100 truncate">{showTitle}</div>
+                              <div className="text-xs text-gray-500">{uniqueCount} episode{uniqueCount !== 1 ? 's' : ''}</div>
+                            </div>
+                            <button
+                              onClick={() => onRemoveWhere(p => p.showTitle === showTitle && p.type === 'episode')}
+                              className="p-1.5 text-red-400 opacity-0 group-hover:opacity-100 hover:text-red-300 shrink-0"
+                              title="Remove all episodes">
+                              <Trash2 size={14} />
+                            </button>
+                            <button
+                              onClick={() => setManageView({ type: 'show', showTitle })}
+                              className="p-1.5 text-gray-400 hover:text-white shrink-0">
+                              <ChevronRight size={16} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </>
+                  )}
+
+                  {manageUniqueMovies.length > 0 && (
+                    <>
+                      {(manageShowMap.size > 0 || manageOthers.length > 0) && (
+                        <div className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-900/30">Movies</div>
+                      )}
+                      {manageUniqueMovies.map(m => (
+                        <div key={epKey(m)} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-700/50 hover:bg-gray-700/30 group">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-gray-100 truncate">{m.title ?? 'Unknown'}</div>
+                            <div className="text-xs text-gray-500">{msToHMS(m.duration)}</div>
+                          </div>
+                          <button
+                            onClick={() => { const k = epKey(m); onRemoveWhere(p => p.type === 'movie' && epKey(p) === k) }}
+                            className="p-1.5 text-red-400 opacity-0 group-hover:opacity-100 hover:text-red-300 shrink-0">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {manageOthers.length > 0 && (
+                    <>
+                      {(manageShowMap.size > 0 || manageUniqueMovies.length > 0) && (
+                        <div className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-900/30">Other</div>
+                      )}
+                      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-700/50 text-sm">
+                        <span className="flex-1 text-gray-400">{manageOthers.length} flex / offline block{manageOthers.length !== 1 ? 's' : ''}</span>
+                        <button onClick={() => onRemoveWhere(p => !!p.isOffline)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* Show level: season list */}
+              {manageView.type === 'show' && (
+                manageSeasons.length === 0
+                  ? <div className="flex items-center justify-center h-32 text-gray-500 text-sm">No seasons found</div>
+                  : manageSeasons.map(([season, sEps]) => {
+                    const uniqueCount = new Set(sEps.map(epKey)).size
+                    const { showTitle } = manageView
+                    return (
+                      <div key={season} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-700/50 hover:bg-gray-700/30 group">
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-100">Season {season}</div>
+                          <div className="text-xs text-gray-500">{uniqueCount} episode{uniqueCount !== 1 ? 's' : ''}</div>
+                        </div>
+                        <button
+                          onClick={() => onRemoveWhere(p => p.showTitle === showTitle && p.season === season && p.type === 'episode')}
+                          className="p-1.5 text-red-400 opacity-0 group-hover:opacity-100 hover:text-red-300 shrink-0"
+                          title="Remove season">
+                          <Trash2 size={14} />
+                        </button>
+                        <button
+                          onClick={() => setManageView({ type: 'season', showTitle, season })}
+                          className="p-1.5 text-gray-400 hover:text-white shrink-0">
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    )
+                  })
+              )}
+
+              {/* Season level: episode list */}
+              {manageView.type === 'season' && (
+                manageEpisodes.length === 0
+                  ? <div className="flex items-center justify-center h-32 text-gray-500 text-sm">No episodes found</div>
+                  : manageEpisodes.map(ep => {
+                    const k = epKey(ep)
+                    return (
+                      <div key={k} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-700/50 hover:bg-gray-700/30 group">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-gray-100 truncate">
+                            S{ep.season}E{String(ep.episode ?? 0).padStart(2, '0')}{ep.title ? ` – ${ep.title}` : ''}
+                          </div>
+                          <div className="text-xs text-gray-500">{msToHMS(ep.duration)}</div>
+                        </div>
+                        <button
+                          onClick={() => onRemoveWhere(p => p.type === 'episode' && epKey(p) === k)}
+                          className="p-1.5 text-red-400 opacity-0 group-hover:opacity-100 hover:text-red-300 shrink-0">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    )
+                  })
+              )}
+
             </div>
           </div>
         )}

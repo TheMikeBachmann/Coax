@@ -214,8 +214,8 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
     }
   }
 
-  const removeProgram = (idx: number) =>
-    update({ programs: ch.programs.filter((_, i) => i !== idx) })
+  const removeWhere = (pred: (p: Program) => boolean) =>
+    update({ programs: ch.programs.filter(p => !pred(p)) })
 
   const padPrograms = (programs: Program[], boundary: number): Program[] => {
     const channelStart = new Date(ch.startTime).getTime()
@@ -385,7 +385,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
                             id={`prog-${i}`}
                             program={prog}
                             index={i}
-                            onRemove={() => removeProgram(i)}
+                            onRemove={() => update({ programs: ch.programs.filter((_, j) => j !== i) })}
                           />
                         ))}
                       </SortableContext>
@@ -646,7 +646,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
       {showLibrary && <PlexLibrary
         programs={ch.programs}
         onAdd={progs => { addPrograms(progs); setShowLibrary(false) }}
-        onRemove={removeProgram}
+        onRemoveWhere={removeWhere}
         onClear={() => update({ programs: [] })}
         onClose={() => setShowLibrary(false)}
       />}
