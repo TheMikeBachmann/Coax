@@ -69,7 +69,8 @@ function resolveIcon(icon, port) {
 }
 
 // Builds a tall canvas: HEADER_H header + all channel rows.
-// Returns { canvas, rowsH, cycleH }.
+// Returns { pixelBuf, rowsH, cycleH, totalH } — canvas is extracted to a
+// plain V8-heap Buffer and discarded so no Rust/Skia memory lingers.
 async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     const slots = getSlotsAt(now, tz)
 
@@ -165,7 +166,14 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
         }
     }
 
-    return { canvas, rowsH, cycleH }
+    // Bake time labels into the static canvas (no per-frame canvas ops needed)
+    drawTimeLabels(ctx, slots, HDR_H + TIME_H / 2, tz)
+
+    // Extract pixels to a plain V8-heap Buffer so the Skia/Rust canvas can be
+    // garbage-collected immediately instead of living for the lifetime of the stream.
+    const imageData = ctx.getImageData(0, 0, W, totalH)
+    const pixelBuf = Buffer.from(imageData.data)  // copies Rust pixels → V8 heap
+    return { pixelBuf, rowsH, cycleH, totalH }
 }
 
 module.exports = function guideChannelHandler(channelService, db, port) {
@@ -237,12 +245,11 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             try { ff.stdin.end() } catch {}
         })
 
-        // Reusable 704×480 frame canvas
-        const frameCanvas = createCanvas(W, H)
-        const frameCtx = frameCanvas.getContext('2d')
-
-        let guideCanvas = null
-        let guideCycleH = VISIBLE_CH_H  // scroll modulo: one full channel-list repetition
+        // V8-heap pixel buffer for the guide; rebuilt every 30s via refreshGuide.
+        // Using a plain Buffer (not canvas) means V8 can GC frame allocations normally.
+        let guideBuf = null
+        let guideTotalH = 0
+        let guideCycleH = VISIBLE_CH_H
         let refreshing = false
         let frameIndex = 0
         const iconCache = {}
@@ -288,9 +295,10 @@ module.exports = function guideChannelHandler(channelService, db, port) {
                     if (!activeNums.has(parseInt(num))) delete iconCache[num]
                 }
 
-                guideCanvas = null  // release old native memory before allocating new canvas
+                guideBuf = null  // release old V8 buffer before allocating new one
                 const result = await buildGuideCanvas(channels, lineups, now, port, tz, iconCache)
-                guideCanvas = result.canvas
+                guideBuf = result.pixelBuf
+                guideTotalH = result.totalH
                 guideCycleH = result.cycleH
             } catch (e) {
                 console.error('[guide-channel] refreshGuide error:', e.message)
@@ -300,38 +308,25 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         }
 
         function renderFrame() {
-            if (!guideCanvas) return null
+            if (!guideBuf) return null
             const t = frameIndex / FPS
-            const scrollY = guideCycleH > 0 ? (t * SCROLL_PX_PER_SEC) % guideCycleH : 0
+            const scrollY = guideCycleH > 0
+                ? Math.floor((t * SCROLL_PX_PER_SEC) % guideCycleH)
+                : 0
 
-            frameCtx.fillStyle = '#0a0a3a'
-            frameCtx.fillRect(0, 0, W, H)
+            // Compose the 704×480 output frame entirely with Buffer copies —
+            // no canvas/Skia/Rust allocations, so V8 can GC these normally.
+            const rowStride = W * 4
+            const frame = Buffer.allocUnsafe(W * H * 4)
+
+            // Pinned header (rows 0..HEADER_H from guide buffer)
+            guideBuf.copy(frame, 0, 0, HEADER_H * rowStride)
+
             // Scrolled channel rows
-            frameCtx.drawImage(guideCanvas, 0, HEADER_H + scrollY, W, VISIBLE_CH_H, 0, HEADER_H, W, VISIBLE_CH_H)
-            // Pinned header
-            frameCtx.drawImage(guideCanvas, 0, 0, W, HEADER_H, 0, 0, W, HEADER_H)
+            const srcStart = (HEADER_H + scrollY) * rowStride
+            guideBuf.copy(frame, HEADER_H * rowStride, srcStart, srcStart + VISIBLE_CH_H * rowStride)
 
-            // Time-row labels: slide in new half-hour set for 4s after each rollover
-            const now = new Date()
-            const totalMs = (now.getMinutes() * 60 + now.getSeconds()) * 1000 + now.getMilliseconds()
-            const msSinceRollover = totalMs % (30 * 60 * 1000)
-            const ANIM_MS = 4000
-            const progress = msSinceRollover < ANIM_MS ? msSinceRollover / ANIM_MS : 1
-            const curSlots = getSlotsAt(now, tz)
-            frameCtx.save()
-            frameCtx.beginPath()
-            frameCtx.rect(0, HDR_H, W, TIME_H)
-            frameCtx.clip()
-            if (progress < 1) {
-                const prevSlots = curSlots.map(s => new Date(s.getTime() - 30 * 60 * 1000))
-                drawTimeLabels(frameCtx, prevSlots, HDR_H + TIME_H / 2 - progress * TIME_H, tz)
-                drawTimeLabels(frameCtx, curSlots, HDR_H + TIME_H / 2 + (1 - progress) * TIME_H, tz)
-            } else {
-                drawTimeLabels(frameCtx, curSlots, HDR_H + TIME_H / 2, tz)
-            }
-            frameCtx.restore()
-
-            return Buffer.from(frameCtx.getImageData(0, 0, W, H).data.buffer)
+            return frame
         }
 
         // Load guide data before starting the frame loop
@@ -365,8 +360,8 @@ module.exports = function guideChannelHandler(channelService, db, port) {
                 refreshGuide().catch(e => console.error('[guide-channel] periodic refresh error:', e.message))
             }
 
-            // getImageData() allocates native memory outside V8's heap; GC won't
-            // collect it unless we nudge it.  Once per second is negligible overhead.
+            // buildGuideCanvas calls getImageData once per refresh cycle; nudge GC
+            // to collect the short-lived Skia allocations from that one call.
             if (frameIndex % FPS === 0 && typeof global.gc === 'function') {
                 global.gc()
             }
