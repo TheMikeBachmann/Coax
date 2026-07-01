@@ -12,7 +12,7 @@ const HDR_H = 30
 const TIME_H = 22
 const HEADER_H = HDR_H + TIME_H   // 52
 const VISIBLE_CH_H = H - HEADER_H // 428
-const ROW_H = 38
+const ROW_H = 64
 const N_SLOTS = 4
 const SLOT_W = Math.floor((W - CH_COL) / N_SLOTS)
 const SCROLL_PX_PER_SEC = 38
@@ -92,16 +92,18 @@ function drawChannelRow(ctx, ch, lineups, y, windowStartMs, windowEndMs, iconMap
 
     const img = iconMap[ch.number]
     if (img) {
-        const pad = 2, maxW = CH_COL - pad * 2, maxH = ROW_H - pad * 2
+        const pad = 4, maxW = CH_COL - pad * 2, maxH = ROW_H - pad * 2
         const scale = Math.min(maxW / img.width, maxH / img.height)
         const iw = Math.round(img.width * scale), ih = Math.round(img.height * scale)
         ctx.drawImage(img, Math.round(pad + (maxW - iw) / 2), Math.round(y + pad + (maxH - ih) / 2), iw, ih)
     } else {
         ctx.textBaseline = 'top'; ctx.textAlign = 'left'
-        ctx.fillStyle = '#aaddff'; ctx.font = '10px monospace'
-        ctx.fillText(String(ch.number).substring(0, 4), 3, y + 4)
-        ctx.fillStyle = 'white'
-        ctx.fillText(String(ch.name || '').substring(0, 9), 3, y + 18)
+        ctx.fillStyle = '#aaddff'; ctx.font = 'bold 10px monospace'
+        ctx.fillText(String(ch.number).substring(0, 4), 4, y + 8)
+        ctx.fillStyle = 'white'; ctx.font = '10px monospace'
+        const name = String(ch.name || '')
+        ctx.fillText(name.substring(0, 9), 4, y + 24)
+        if (name.length > 9) ctx.fillText(name.substring(9, 18), 4, y + 38)
     }
 
     const lineup = (lineups[ch.number] || []).filter(p => !p.isOffline)
@@ -114,14 +116,38 @@ function drawChannelRow(ctx, ch, lineups, y, windowStartMs, windowEndMs, iconMap
         const cellW = x2 - x1
         if (cellW < 2) continue
         ctx.fillStyle = '#3344aa'; ctx.fillRect(x1, y, 1, ROW_H - 1)
-        const textW = cellW - 4
+        const textW = cellW - 6
         if (textW < 8) continue
-        ctx.fillStyle = 'white'; ctx.font = '11px monospace'
-        ctx.textBaseline = 'top'; ctx.textAlign = 'left'
-        ctx.fillText(String(prog.title || '').substring(0, Math.floor(textW / 6.6)), x1 + 3, y + 8)
-        if (prog.sub?.season && textW > 50) {
-            ctx.fillStyle = '#888888'; ctx.font = '9px monospace'
-            ctx.fillText(`S${prog.sub.season}E${prog.sub.episode}`.substring(0, Math.floor(textW / 6)), x1 + 3, y + 22)
+
+        // Title — up to 2 word-wrapped lines
+        const charsPerLine = Math.floor(textW / 6.6)
+        if (charsPerLine >= 1) {
+            const title = String(prog.title || '')
+            ctx.fillStyle = 'white'; ctx.font = '11px monospace'
+            ctx.textBaseline = 'top'; ctx.textAlign = 'left'
+            if (title.length <= charsPerLine) {
+                ctx.fillText(title, x1 + 3, y + 8)
+            } else {
+                let cut = title.lastIndexOf(' ', charsPerLine)
+                if (cut < 1) cut = charsPerLine
+                ctx.fillText(title.substring(0, cut), x1 + 3, y + 8)
+                const rest = title.substring(cut + (title[cut] === ' ' ? 1 : 0))
+                ctx.fillText(rest.substring(0, charsPerLine), x1 + 3, y + 22)
+            }
+        }
+
+        if (textW < 40) continue
+
+        // Episode title
+        if (prog.sub?.title) {
+            ctx.fillStyle = '#aaaacc'; ctx.font = '10px monospace'
+            ctx.fillText(String(prog.sub.title).substring(0, Math.floor(textW / 6.0)), x1 + 3, y + 37)
+        }
+
+        // Season / episode number
+        if (prog.sub?.season != null) {
+            ctx.fillStyle = '#777799'; ctx.font = '9px monospace'
+            ctx.fillText(`S${prog.sub.season}E${prog.sub.episode}`, x1 + 3, y + 51)
         }
     }
 }
