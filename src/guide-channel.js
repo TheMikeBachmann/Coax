@@ -1,6 +1,9 @@
 const { spawn } = require('child_process')
 const { createCanvas, loadImage } = require('@napi-rs/canvas')
 const http = require('http')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 
 const W = 704
 const H = 480
@@ -13,14 +16,11 @@ const ROW_H = 38
 const N_SLOTS = 4
 const SLOT_W = Math.floor((W - CH_COL) / N_SLOTS)
 const SCROLL_PX_PER_SEC = 38
-const REFRESH_SEC = 30
-const FPS = 15
-const FRAME_MS = 1000 / FPS
-const FRAMES_PER_REFRESH = FPS * REFRESH_SEC
+const FPS = 25
 
 function hhmm(date, tz) {
     const fmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz })
-    return fmt.format(date).replace(':00', '').replace(' ', ' ')
+    return fmt.format(date).replace(':00', '').replace(' ', ' ')
 }
 
 function getSlotsAt(date, tz) {
@@ -61,23 +61,18 @@ function fetchJson(url) {
     })
 }
 
-// Convert a relative icon path (/images/...) to an absolute localhost URL.
 function resolveIcon(icon, port) {
     if (!icon) return null
     if (icon.startsWith('http://') || icon.startsWith('https://')) return icon
     return `http://localhost:${port}${icon.startsWith('/') ? '' : '/'}${icon}`
 }
 
-// Builds a tall canvas: HEADER_H header + all channel rows.
-// Returns { pixelBuf, rowsH, cycleH, totalH } — canvas is extracted to a
-// plain V8-heap Buffer and discarded so no Rust/Skia memory lingers.
+// Renders the full guide to a temp PNG file for FFmpeg to read.
+// Returns { tmpPath, rowsH, cycleH, totalH }.
+// The canvas is discarded after PNG export so no Skia/Rust memory lingers.
 async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     const slots = getSlotsAt(now, tz)
 
-    // Repeat the channel list enough times that the canvas is always taller than
-    // the visible area, enabling seamless infinite scrolling regardless of how
-    // few channels there are.  The scroll modulo is cycleH (one full repetition)
-    // so scrollY=0 and scrollY=cycleH show identical content → no visible seam.
     const cycleH = channels.length > 0 ? channels.length * ROW_H : VISIBLE_CH_H
     const reps = channels.length > 0
         ? Math.max(2, Math.ceil((VISIBLE_CH_H + cycleH) / cycleH) + 1)
@@ -103,14 +98,13 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     ctx.fillStyle = '#0a0a50'
     ctx.fillRect(0, HDR_H, W, TIME_H)
 
-    // Column dividers — start below the title bar, extend through time-slot row and all channel rows
     ctx.fillStyle = '#3344aa'
     ctx.fillRect(CH_COL, HDR_H, 1, totalH - HDR_H)
     for (let i = 1; i < N_SLOTS; i++) {
         ctx.fillRect(CH_COL + i * SLOT_W, HDR_H, 1, totalH - HDR_H)
     }
 
-    // ── Channel rows (repeated reps times for seamless infinite scroll) ──
+    // ── Channel rows ──
     for (let rep = 0; rep < reps; rep++) {
         for (let r = 0; r < channels.length; r++) {
             const ch = channels[r]
@@ -123,7 +117,6 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
 
             const img = iconMap[ch.number]
             if (img) {
-                // Fit icon centered in the full row slot
                 const pad = 2
                 const maxW = CH_COL - pad * 2
                 const maxH = ROW_H - pad * 2
@@ -166,22 +159,14 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
         }
     }
 
-    // Bake time labels into the static canvas (no per-frame canvas ops needed)
     drawTimeLabels(ctx, slots, HDR_H + TIME_H / 2, tz)
 
-    // Extract pixels as RGB24 (strip alpha): 25% less data than RGBA, and
-    // libswscale's rgb24→yuv420p path is better-optimised than rgba→yuv420p.
-    // Buffer.from() on a TypedArray copies into V8-heap memory, freeing the
-    // Skia/Rust canvas for GC immediately.
-    const imageData = ctx.getImageData(0, 0, W, totalH)
-    const rgba = imageData.data
-    const pixelBuf = Buffer.allocUnsafe(W * totalH * 3)
-    for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
-        pixelBuf[j]   = rgba[i]
-        pixelBuf[j+1] = rgba[i+1]
-        pixelBuf[j+2] = rgba[i+2]
-    }
-    return { pixelBuf, rowsH, cycleH, totalH }
+    // Write to a temp PNG file; FFmpeg reads this with -loop 1 and its
+    // scroll filter handles frame generation — no raw video pipe needed.
+    const pngBuf = canvas.toBuffer('image/png')
+    const tmpPath = path.join(os.tmpdir(), `coax-guide-${Date.now()}-${Math.random().toString(36).slice(2)}.png`)
+    fs.writeFileSync(tmpPath, pngBuf)
+    return { tmpPath, rowsH, cycleH, totalH }
 }
 
 module.exports = function guideChannelHandler(channelService, db, port) {
@@ -193,7 +178,6 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             'Access-Control-Allow-Headers': 'Range',
         })
 
-        let stopped = false
         const tz = req.query.tz || 'UTC'
 
         const ffmpegSettings = db['ffmpeg-settings'].find()[0] || {}
@@ -201,198 +185,100 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         const vEncoder = ffmpegSettings.videoEncoder || 'libx264'
         const aEncoder = ffmpegSettings.audioEncoder || 'aac'
 
-        // Single long-running ffmpeg fed raw RGBA frames via stdin.
-        // No process restarts = no PTS discontinuities.
-        const ff = spawn(ffmpegPath, [
-            '-thread_queue_size', '4',
-            '-f', 'rawvideo',
-            '-pixel_format', 'rgb24',
-            '-video_size', `${W}x${H}`,
-            '-framerate', String(FPS),
-            '-i', 'pipe:0',
-            '-thread_queue_size', '4',
-            '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
-            '-map', '0:v',
-            '-map', '1:a',
-            '-c:v', vEncoder,
-            '-preset', 'ultrafast',
-            ...(vEncoder === 'libx264' ? ['-tune', 'zerolatency'] : []),
-            '-g', String(FPS),
-            '-maxrate', '2000k',
-            '-bufsize', '4000k',
-            '-c:a', aEncoder,
-            '-flush_packets', '1',
-            '-f', 'mpegts', 'pipe:1',
-        ], { stdio: ['pipe', 'pipe', 'pipe'] })
-
-        ff.stdout.pipe(res, { end: false })
-        console.log('[guide-channel] gc available:', typeof global.gc === 'function')
-
-        let stderrBuf = ''
-        ff.stderr.on('data', d => {
-            stderrBuf += d
-            if (stderrBuf.length > 10000) stderrBuf = stderrBuf.slice(-5000)
-        })
-
-        const memLogger = setInterval(() => {
-            if (stopped) { clearInterval(memLogger); return }
-            const m = process.memoryUsage()
-            console.log(`[guide-channel] frame=${frameIndex} rss=${Math.round(m.rss/1e6)}MB heap=${Math.round(m.heapUsed/1e6)}MB ext=${Math.round(m.external/1e6)}MB stdinBuf=${ff.stdin.writableLength}`)
-        }, 15000)
-        ff.on('close', code => {
-            stopped = true
-            clearInterval(memLogger)
-            if (code !== 0 && stderrBuf) console.error('[guide-channel] ffmpeg exit', code, stderrBuf.slice(-500))
-        })
-        ff.on('error', err => {
-            stopped = true
-            console.error('[guide-channel] ffmpeg error:', err.message)
-        })
-        res.on('close', () => {
-            stopped = true
-            try { ff.stdin.end() } catch {}
-        })
-
-        // V8-heap pixel buffer for the guide; rebuilt every 30s via refreshGuide.
-        // Using a plain Buffer (not canvas) means V8 can GC frame allocations normally.
-        let guideBuf = null
-        let guideTotalH = 0
-        let guideCycleH = VISIBLE_CH_H
-        let refreshing = false
-        let frameIndex = 0
+        // Build guide canvas and fetch channel data once per session.
         const iconCache = {}
+        let tmpPath = null
 
-        async function refreshGuide() {
-            if (refreshing) return
-            refreshing = true
+        try {
+            const now = new Date()
+            const from = now.toISOString()
+            const to = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
+            let channels = []
+            let lineups = {}
             try {
-                const now = new Date()
-                const from = now.toISOString()
-                const to = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
-                let channels = []
-                let lineups = {}
-                try {
-                    const nums = await channelService.getAllChannelNumbers()
-                    channels = (await Promise.all(nums.map(n => channelService.getChannel(n))))
-                        .filter(Boolean)
-                        .sort((a, b) => a.number - b.number)
-                    await Promise.all(channels.map(async ch => {
-                        try {
-                            const data = await fetchJson(
-                                `http://localhost:${port}/api/guide/channels/${ch.number}` +
-                                `?dateFrom=${encodeURIComponent(from)}&dateTo=${encodeURIComponent(to)}`
-                            )
-                            lineups[ch.number] = data.programs || []
-                        } catch { lineups[ch.number] = [] }
-                    }))
-                } catch (e) {
-                    console.error('[guide-channel] Failed to fetch data:', e.message)
-                }
-
-                // Load icons only for channels not already cached
-                await Promise.allSettled(
-                    channels.filter(ch => ch.icon && !iconCache[ch.number]).map(async ch => {
-                        const url = resolveIcon(ch.icon, port)
-                        if (!url) return
-                        try { iconCache[ch.number] = await loadImage(url) } catch {}
-                    })
-                )
-                // Evict icons for channels no longer present
-                const activeNums = new Set(channels.map(ch => ch.number))
-                for (const num of Object.keys(iconCache)) {
-                    if (!activeNums.has(parseInt(num))) delete iconCache[num]
-                }
-
-                guideBuf = null  // release old V8 buffer before allocating new one
-                const result = await buildGuideCanvas(channels, lineups, now, port, tz, iconCache)
-                guideBuf = result.pixelBuf
-                guideTotalH = result.totalH
-                guideCycleH = result.cycleH
+                const nums = await channelService.getAllChannelNumbers()
+                channels = (await Promise.all(nums.map(n => channelService.getChannel(n))))
+                    .filter(Boolean)
+                    .sort((a, b) => a.number - b.number)
+                await Promise.all(channels.map(async ch => {
+                    try {
+                        const data = await fetchJson(
+                            `http://localhost:${port}/api/guide/channels/${ch.number}` +
+                            `?dateFrom=${encodeURIComponent(from)}&dateTo=${encodeURIComponent(to)}`
+                        )
+                        lineups[ch.number] = data.programs || []
+                    } catch { lineups[ch.number] = [] }
+                }))
             } catch (e) {
-                console.error('[guide-channel] refreshGuide error:', e.message)
-            } finally {
-                refreshing = false
+                console.error('[guide-channel] Failed to fetch data:', e.message)
             }
+
+            await Promise.allSettled(
+                channels.filter(ch => ch.icon).map(async ch => {
+                    const url = resolveIcon(ch.icon, port)
+                    if (!url) return
+                    try { iconCache[ch.number] = await loadImage(url) } catch {}
+                })
+            )
+
+            const result = await buildGuideCanvas(channels, lineups, now, port, tz, iconCache)
+            tmpPath = result.tmpPath
+
+            // FFmpeg reads the static PNG with -loop 1 and its scroll filter
+            // advances the viewport each frame internally.  P-frames for a slowly
+            // scrolling scene are near-free (just a vertical motion vector), so
+            // CPU is a fraction of what raw-video-pipe encoding costs.
+            //
+            // Filter graph:
+            //   split the full guide image into header (pinned) and channel rows
+            //   (scrolling), crop the visible window, stack them back together.
+            const scrollSpeed = (SCROLL_PX_PER_SEC / (FPS * result.rowsH)).toFixed(8)
+            const filterGraph = [
+                `[0:v]split=2[a][b]`,
+                `[a]crop=${W}:${HEADER_H}:0:0[hdr]`,
+                `[b]crop=${W}:${result.rowsH}:0:${HEADER_H},scroll=v=${scrollSpeed}:h=0,crop=${W}:${VISIBLE_CH_H}:0:0[rows]`,
+                `[hdr][rows]vstack[out]`,
+            ].join(';')
+
+            const ff = spawn(ffmpegPath, [
+                '-r', String(FPS),
+                '-loop', '1',
+                '-i', tmpPath,
+                '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+                '-filter_complex', filterGraph,
+                '-map', '[out]',
+                '-map', '1:a',
+                '-c:v', vEncoder,
+                '-preset', 'ultrafast',
+                ...(vEncoder === 'libx264' ? ['-tune', 'zerolatency'] : []),
+                '-g', String(FPS),
+                '-maxrate', '2000k',
+                '-bufsize', '4000k',
+                '-c:a', aEncoder,
+                '-flush_packets', '1',
+                '-f', 'mpegts', 'pipe:1',
+            ], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+            ff.stdout.pipe(res, { end: false })
+
+            let stderrBuf = ''
+            ff.stderr.on('data', d => {
+                stderrBuf += d
+                if (stderrBuf.length > 10000) stderrBuf = stderrBuf.slice(-5000)
+            })
+            ff.on('close', code => {
+                if (code !== 0 && stderrBuf) console.error('[guide-channel] ffmpeg exit', code, stderrBuf.slice(-500))
+            })
+            ff.on('error', err => console.error('[guide-channel] ffmpeg error:', err.message))
+
+            res.on('close', () => {
+                try { ff.kill() } catch {}
+                if (tmpPath) { try { fs.unlinkSync(tmpPath) } catch {} }
+            })
+        } catch (e) {
+            console.error('[guide-channel] startup error:', e.message)
+            if (tmpPath) { try { fs.unlinkSync(tmpPath) } catch {} }
+            res.end()
         }
-
-        function renderFrame() {
-            if (!guideBuf) return null
-            const t = frameIndex / FPS
-            const scrollY = guideCycleH > 0
-                ? Math.floor((t * SCROLL_PX_PER_SEC) % guideCycleH)
-                : 0
-
-            // Compose the 704×480 output frame entirely with Buffer copies —
-            // no canvas/Skia/Rust allocations, so V8 can GC these normally.
-            const rowStride = W * 3  // rgb24: 3 bytes per pixel
-            const frame = Buffer.allocUnsafe(W * H * 3)
-
-            // Pinned header (rows 0..HEADER_H from guide buffer)
-            guideBuf.copy(frame, 0, 0, HEADER_H * rowStride)
-
-            // Scrolled channel rows
-            const srcStart = (HEADER_H + scrollY) * rowStride
-            guideBuf.copy(frame, HEADER_H * rowStride, srcStart, srcStart + VISIBLE_CH_H * rowStride)
-
-            return frame
-        }
-
-        // Load guide data before starting the frame loop
-        await refreshGuide()
-
-        function rolloverKey(date) {
-            const parts = new Intl.DateTimeFormat('en-US', {
-                hour: 'numeric', minute: 'numeric', hour12: false, timeZone: tz
-            }).formatToParts(date)
-            const h = parts.find(p => p.type === 'hour').value
-            const m = parseInt(parts.find(p => p.type === 'minute').value)
-            return `${h}:${m < 30 ? '00' : '30'}`
-        }
-
-        let lastRolloverKey = rolloverKey(new Date())
-
-        function scheduleNextFrame() {
-            if (stopped) return
-            const frameStart = Date.now()
-
-            // Refresh at each half-hour boundary so data matches the new labels
-            const checkNow = new Date()
-            const key = rolloverKey(checkNow)
-            if (key !== lastRolloverKey) {
-                lastRolloverKey = key
-                refreshGuide().catch(e => console.error('[guide-channel] rollover refresh error:', e.message))
-            }
-
-            // Also refresh every REFRESH_SEC frames
-            if (frameIndex > 0 && frameIndex % FRAMES_PER_REFRESH === 0) {
-                refreshGuide().catch(e => console.error('[guide-channel] periodic refresh error:', e.message))
-            }
-
-            // buildGuideCanvas calls getImageData once per refresh cycle; nudge GC
-            // to collect the short-lived Skia allocations from that one call.
-            if (frameIndex % FPS === 0 && typeof global.gc === 'function') {
-                global.gc()
-            }
-
-            let frame
-            try { frame = renderFrame() } catch (e) {
-                console.error('[guide-channel] renderFrame error:', e.message)
-            }
-            if (frame && !ff.stdin.destroyed) {
-                frameIndex++
-                const ok = ff.stdin.write(frame)
-                const elapsed = Date.now() - frameStart
-                const delay = Math.max(0, FRAME_MS - elapsed)
-                if (ok) {
-                    setTimeout(scheduleNextFrame, delay)
-                } else {
-                    ff.stdin.once('drain', () => { if (!stopped) scheduleNextFrame() })
-                }
-            } else {
-                setTimeout(scheduleNextFrame, FRAME_MS)
-            }
-        }
-
-        scheduleNextFrame()
     }
 }
