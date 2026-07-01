@@ -14,7 +14,7 @@ const N_SLOTS = 4
 const SLOT_W = Math.floor((W - CH_COL) / N_SLOTS)
 const SCROLL_PX_PER_SEC = 38
 const REFRESH_SEC = 30
-const FPS = 25
+const FPS = 15
 const FRAME_MS = 1000 / FPS
 const FRAMES_PER_REFRESH = FPS * REFRESH_SEC
 
@@ -169,10 +169,18 @@ async function buildGuideCanvas(channels, lineups, now, port, tz, iconMap) {
     // Bake time labels into the static canvas (no per-frame canvas ops needed)
     drawTimeLabels(ctx, slots, HDR_H + TIME_H / 2, tz)
 
-    // Extract pixels to a plain V8-heap Buffer so the Skia/Rust canvas can be
-    // garbage-collected immediately instead of living for the lifetime of the stream.
+    // Extract pixels as RGB24 (strip alpha): 25% less data than RGBA, and
+    // libswscale's rgb24→yuv420p path is better-optimised than rgba→yuv420p.
+    // Buffer.from() on a TypedArray copies into V8-heap memory, freeing the
+    // Skia/Rust canvas for GC immediately.
     const imageData = ctx.getImageData(0, 0, W, totalH)
-    const pixelBuf = Buffer.from(imageData.data)  // copies Rust pixels → V8 heap
+    const rgba = imageData.data
+    const pixelBuf = Buffer.allocUnsafe(W * totalH * 3)
+    for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+        pixelBuf[j]   = rgba[i]
+        pixelBuf[j+1] = rgba[i+1]
+        pixelBuf[j+2] = rgba[i+2]
+    }
     return { pixelBuf, rowsH, cycleH, totalH }
 }
 
@@ -198,7 +206,7 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         const ff = spawn(ffmpegPath, [
             '-thread_queue_size', '4',
             '-f', 'rawvideo',
-            '-pixel_format', 'rgba',
+            '-pixel_format', 'rgb24',
             '-video_size', `${W}x${H}`,
             '-framerate', String(FPS),
             '-i', 'pipe:0',
@@ -316,8 +324,8 @@ module.exports = function guideChannelHandler(channelService, db, port) {
 
             // Compose the 704×480 output frame entirely with Buffer copies —
             // no canvas/Skia/Rust allocations, so V8 can GC these normally.
-            const rowStride = W * 4
-            const frame = Buffer.allocUnsafe(W * H * 4)
+            const rowStride = W * 3  // rgb24: 3 bytes per pixel
+            const frame = Buffer.allocUnsafe(W * H * 3)
 
             // Pinned header (rows 0..HEADER_H from guide buffer)
             guideBuf.copy(frame, 0, 0, HEADER_H * rowStride)
