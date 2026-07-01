@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { X, Search, Plus, ChevronRight, ArrowLeft, Loader2, ChevronsRight } from 'lucide-react'
+import { X, Search, Plus, ChevronRight, ArrowLeft, Loader2, ChevronsRight, Trash2 } from 'lucide-react'
 import { coax } from '../../api/coax'
 import { plexApi } from '../../api/plex'
 import type { PlexMeta } from '../../api/plex'
@@ -7,8 +7,26 @@ import { useToast } from '../Toast'
 import type { PlexServer, PlexLibrarySection, Program, CustomShowInfo } from '../../types'
 
 interface Props {
+  programs?: Program[]
   onAdd: (programs: Program[]) => void
+  onRemove?: (idx: number) => void
+  onClear?: () => void
   onClose: () => void
+}
+
+function programLabel(p: Program) {
+  if (p.isOffline) return p.flex ? 'Flex' : 'Offline'
+  if (p.isRedirect) return `→ Ch ${p.channel}`
+  if (p.type === 'episode') return `${p.showTitle} S${p.season}E${p.episode} – ${p.title}`
+  if (p.type === 'track') return `♪ ${p.showTitle} – ${p.title}`
+  return p.title ?? 'Unknown'
+}
+
+function msToHMS(ms: number) {
+  const h = Math.floor(ms / 3600000)
+  const m = Math.floor((ms % 3600000) / 60000)
+  const s = Math.floor((ms % 60000) / 1000)
+  return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
 type Source = { type: 'plex'; server: PlexServer } | { type: 'show'; id: string; name: string }
@@ -55,8 +73,9 @@ function itemIcon(server: PlexServer, meta: PlexMeta): string | undefined {
   return thumb ? `${server.uri}${thumb}?X-Plex-Token=${server.accessToken}` : undefined
 }
 
-export default function PlexLibrary({ onAdd, onClose }: Props) {
+export default function PlexLibrary({ programs = [], onAdd, onRemove, onClear, onClose }: Props) {
   const { addToast } = useToast()
+  const [tab, setTab] = useState<'browse' | 'manage'>('browse')
   const [servers, setServers] = useState<PlexServer[]>([])
   const [shows, setShows] = useState<CustomShowInfo[]>([])
   const [source, setSource] = useState<Source | null>(null)
@@ -224,16 +243,59 @@ export default function PlexLibrary({ onAdd, onClose }: Props) {
 
   const currentServer = source?.type === 'plex' ? (source as { type: 'plex'; server: PlexServer }).server : null
 
+  const totalDuration = programs.reduce((s, p) => s + p.duration, 0)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="bg-gray-800 rounded-xl shadow-2xl border border-gray-700 w-full max-w-4xl h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold">Add Content</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-lg font-semibold">Content</h2>
+            {onRemove && (
+              <div className="flex rounded border border-gray-600 overflow-hidden text-sm">
+                <button
+                  onClick={() => setTab('browse')}
+                  className={`px-3 py-1 ${tab === 'browse' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                >Browse</button>
+                <button
+                  onClick={() => setTab('manage')}
+                  className={`px-3 py-1 border-l border-gray-600 ${tab === 'manage' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                >Manage · {programs.length}</button>
+              </div>
+            )}
+          </div>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-700 rounded"><X size={18} /></button>
         </div>
 
-        <div className="flex flex-1 min-h-0">
+        {/* Manage tab */}
+        {tab === 'manage' && (
+          <div className="flex flex-col flex-1 min-h-0">
+            <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between">
+              <span className="text-sm text-gray-400">{programs.length} programs · {msToHMS(totalDuration)}</span>
+              {programs.length > 0 && onClear && (
+                <button onClick={onClear} className="text-xs text-red-400 hover:text-red-300">Clear all</button>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {programs.length === 0 ? (
+                <div className="flex items-center justify-center h-32 text-gray-500 text-sm">No programs yet</div>
+              ) : programs.map((prog, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-700/50 hover:bg-gray-700/30 group">
+                  <span className="text-xs text-gray-500 w-6 shrink-0 text-right">{i + 1}</span>
+                  <span className="flex-1 text-sm text-gray-200 truncate">{programLabel(prog)}</span>
+                  <span className="text-xs text-gray-500 shrink-0">{msToHMS(prog.duration)}</span>
+                  <button onClick={() => onRemove?.(i)} className="p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:text-red-300 shrink-0">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Browse tab */}
+        {tab === 'browse' && <div className="flex flex-1 min-h-0">
           {/* Left: source + library selector */}
           <div className="w-52 shrink-0 border-r border-gray-700 flex flex-col overflow-y-auto">
             {servers.length > 0 && (
@@ -368,7 +430,7 @@ export default function PlexLibrary({ onAdd, onClose }: Props) {
               </button>
             </div>
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   )

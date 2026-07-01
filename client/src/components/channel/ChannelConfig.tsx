@@ -335,7 +335,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
               <div className="flex flex-col h-full">
                 <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-800/50">
                   <button onClick={() => setShowLibrary(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm">
-                    <Plus size={14} /> Add Content
+                    <Plus size={14} /> Content
                   </button>
                   <button onClick={() => setShowTimeSlots(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-sm">
                     <Clock size={14} /> Time Slots
@@ -643,7 +643,13 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
         </div>
       </div>
 
-      {showLibrary && <PlexLibrary onAdd={progs => { addPrograms(progs); setShowLibrary(false) }} onClose={() => setShowLibrary(false)} />}
+      {showLibrary && <PlexLibrary
+        programs={ch.programs}
+        onAdd={progs => { addPrograms(progs); setShowLibrary(false) }}
+        onRemove={removeProgram}
+        onClear={() => update({ programs: [] })}
+        onClose={() => setShowLibrary(false)}
+      />}
       {showTimeSlots && <TimeSlotsEditor programs={ch.programs} onApply={progs => update({ programs: progs })} onClose={() => setShowTimeSlots(false)} />}
       {showRandomSlots && <RandomSlotsEditor programs={ch.programs} onApply={progs => update({ programs: progs })} onClose={() => setShowRandomSlots(false)} />}
     </>
