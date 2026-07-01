@@ -7,14 +7,16 @@ const path = require('path')
 
 const W = 704
 const H = 480
+const SAFE_L = 20, SAFE_R = 20
+const GW = W - SAFE_L - SAFE_R     // 664 — content width within overscan margins
 const CH_COL = 96
-const HDR_H = 30
-const TIME_H = 22
-const HEADER_H = HDR_H + TIME_H   // 52
-const VISIBLE_CH_H = H - HEADER_H // 428
-const ROW_H = 64
-const N_SLOTS = 4
-const SLOT_W = Math.floor((W - CH_COL) / N_SLOTS)
+const HDR_H = 4                     // thin top strip (title bar removed)
+const TIME_H = 24
+const HEADER_H = HDR_H + TIME_H    // 28
+const VISIBLE_CH_H = H - HEADER_H  // 452
+const ROW_H = 72
+const N_SLOTS = 3                   // 1.5 hours of content
+const SLOT_W = Math.floor((GW - CH_COL) / N_SLOTS)
 const SCROLL_PX_PER_SEC = 38
 const FPS = 25
 
@@ -44,7 +46,7 @@ function getNextHalfHour(now, tz) {
 function drawTimeLabels(ctx, slots, midY, tz) {
     for (let i = 0; i < N_SLOTS; i++) {
         ctx.fillStyle = 'cyan'
-        ctx.font = '12px monospace'
+        ctx.font = '14px monospace'
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
         ctx.fillText(hhmm(slots[i], tz), CH_COL + i * SLOT_W + 4, midY)
@@ -67,9 +69,16 @@ function resolveIcon(icon, port) {
     return `http://localhost:${port}${icon.startsWith('/') ? '' : '/'}${icon}`
 }
 
-function drawTimeBar(ctx, y, slots, tz) {
+function drawTimeBar(ctx, y, slots, tz, nowLabel = null) {
     ctx.fillStyle = '#0a0a50'
-    ctx.fillRect(0, y, W, TIME_H)
+    ctx.fillRect(0, y, GW, TIME_H)
+    if (nowLabel) {
+        ctx.fillStyle = 'white'
+        ctx.font = 'bold 14px monospace'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(nowLabel, CH_COL / 2, y + TIME_H / 2)
+    }
     drawTimeLabels(ctx, slots, y + TIME_H / 2, tz)
 }
 
@@ -83,12 +92,12 @@ function drawGridLines(ctx, startY, height) {
 
 function drawChannelRow(ctx, ch, lineups, y, windowStartMs, windowEndMs, iconMap, rowIdx) {
     const windowDurMs = windowEndMs - windowStartMs
-    const contentW    = W - CH_COL
+    const contentW    = GW - CH_COL
 
     ctx.fillStyle = rowIdx % 2 === 0 ? '#0f0f50' : '#080840'
-    ctx.fillRect(0, y, W, ROW_H)
+    ctx.fillRect(0, y, GW, ROW_H)
     ctx.fillStyle = '#3344aa'
-    ctx.fillRect(0, y + ROW_H - 1, W, 1)
+    ctx.fillRect(0, y + ROW_H - 1, GW, 1)
     ctx.fillRect(CH_COL, y, 1, ROW_H - 1)  // logo column right edge — always fixed
 
     const img = iconMap[ch.number]
@@ -99,12 +108,12 @@ function drawChannelRow(ctx, ch, lineups, y, windowStartMs, windowEndMs, iconMap
         ctx.drawImage(img, Math.round(pad + (maxW - iw) / 2), Math.round(y + pad + (maxH - ih) / 2), iw, ih)
     } else {
         ctx.textBaseline = 'top'; ctx.textAlign = 'left'
-        ctx.fillStyle = '#aaddff'; ctx.font = 'bold 10px monospace'
-        ctx.fillText(String(ch.number).substring(0, 4), 4, y + 8)
-        ctx.fillStyle = 'white'; ctx.font = '10px monospace'
+        ctx.fillStyle = '#aaddff'; ctx.font = 'bold 13px monospace'
+        ctx.fillText(String(ch.number).substring(0, 4), 4, y + 10)
+        ctx.fillStyle = 'white'; ctx.font = '11px monospace'
         const name = String(ch.name || '')
-        ctx.fillText(name.substring(0, 9), 4, y + 24)
-        if (name.length > 9) ctx.fillText(name.substring(9, 18), 4, y + 38)
+        ctx.fillText(name.substring(0, 12), 4, y + 28)
+        if (name.length > 12) ctx.fillText(name.substring(12, 24), 4, y + 44)
     }
 
     const lineup = (lineups[ch.number] || []).filter(p => !p.isOffline)
@@ -118,13 +127,13 @@ function drawChannelRow(ctx, ch, lineups, y, windowStartMs, windowEndMs, iconMap
         if (cellW < 2) continue
         ctx.fillStyle = '#3344aa'; ctx.fillRect(x1, y, 1, ROW_H - 1)
         const textW = cellW - 6
-        if (textW < 8) continue
+        if (textW < 10) continue
 
         // Title — up to 2 word-wrapped lines
-        const charsPerLine = Math.floor(textW / 6.6)
+        const charsPerLine = Math.floor(textW / 8.4)
         if (charsPerLine >= 1) {
             const title = String(prog.title || '')
-            ctx.fillStyle = 'white'; ctx.font = '11px monospace'
+            ctx.fillStyle = 'white'; ctx.font = '14px monospace'
             ctx.textBaseline = 'top'; ctx.textAlign = 'left'
             if (title.length <= charsPerLine) {
                 ctx.fillText(title, x1 + 3, y + 8)
@@ -133,22 +142,22 @@ function drawChannelRow(ctx, ch, lineups, y, windowStartMs, windowEndMs, iconMap
                 if (cut < 1) cut = charsPerLine
                 ctx.fillText(title.substring(0, cut), x1 + 3, y + 8)
                 const rest = title.substring(cut + (title[cut] === ' ' ? 1 : 0))
-                ctx.fillText(rest.substring(0, charsPerLine), x1 + 3, y + 22)
+                ctx.fillText(rest.substring(0, charsPerLine), x1 + 3, y + 25)
             }
         }
 
-        if (textW < 40) continue
+        if (textW < 48) continue
 
         // Episode title
         if (prog.sub?.title) {
-            ctx.fillStyle = '#aaaacc'; ctx.font = '10px monospace'
-            ctx.fillText(String(prog.sub.title).substring(0, Math.floor(textW / 6.0)), x1 + 3, y + 37)
+            ctx.fillStyle = '#aaaacc'; ctx.font = '12px monospace'
+            ctx.fillText(String(prog.sub.title).substring(0, Math.floor(textW / 7.2)), x1 + 3, y + 44)
         }
 
         // Season / episode number
         if (prog.sub?.season != null) {
-            ctx.fillStyle = '#777799'; ctx.font = '9px monospace'
-            ctx.fillText(`S${prog.sub.season}E${prog.sub.episode}`, x1 + 3, y + 51)
+            ctx.fillStyle = '#777799'; ctx.font = '11px monospace'
+            ctx.fillText(`S${prog.sub.season}E${prog.sub.episode}`, x1 + 3, y + 59)
         }
     }
 }
@@ -165,17 +174,7 @@ function drawChannelRows(ctx, channels, lineups, startY, rowsH, windowStartMs, w
     }
 }
 
-function drawTitle(ctx) {
-    ctx.fillStyle = '#1a1a6a'
-    ctx.fillRect(0, 0, W, HDR_H)
-    ctx.fillStyle = 'yellow'
-    ctx.font = 'bold 15px monospace'
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'middle'
-    ctx.fillText('PROGRAM GUIDE', 8, HDR_H / 2)
-}
-
-// Normal guide canvas for steady-state loops. pinnedH = HEADER_H (52px).
+// Normal guide canvas for steady-state loops. pinnedH = HEADER_H (28px).
 async function buildGuideCanvas(channels, lineups, now, tz, iconMap) {
     const slots        = getSlotsAt(now, tz)
     const windowStartMs = slots[0].getTime()
@@ -188,8 +187,8 @@ async function buildGuideCanvas(channels, lineups, now, tz, iconMap) {
     const canvas = createCanvas(W, totalH)
     const ctx    = canvas.getContext('2d')
     ctx.fillStyle = '#0a0a3a'; ctx.fillRect(0, 0, W, totalH)
-    drawTitle(ctx)
-    drawTimeBar(ctx, HDR_H, slots, tz)
+    ctx.translate(SAFE_L, 0)
+    drawTimeBar(ctx, HDR_H, slots, tz, hhmm(now, tz))
     drawGridLines(ctx, HDR_H, totalH - HDR_H)
     if (channels.length > 0) {
         drawChannelRows(ctx, channels, lineups, HEADER_H, rowsH, windowStartMs, windowEndMs, iconMap)
@@ -201,10 +200,10 @@ async function buildGuideCanvas(channels, lineups, now, tz, iconMap) {
     return { base, rowsH, cycleH }
 }
 
-// Approach canvas — pinnedH = HEADER_H (52px).
+// Approach canvas — pinnedH = HEADER_H (28px).
 // Old time bar stays LOCKED at the top throughout.
 // New time bar is in the scrolling content at position oldRowsH, so it enters
-// the viewport from the bottom and arrives at y=52 when scroll = oldRowsH.
+// the viewport from the bottom and arrives at y=28 when scroll = oldRowsH.
 // oldRowsH must be >= VISIBLE_CH_H so the new bar starts below the viewport.
 async function buildApproachCanvas(channels, lineups, currentSlots, nextSlots, oldRowsH, tz, iconMap) {
     const windowOldStartMs = currentSlots[0].getTime()
@@ -220,7 +219,7 @@ async function buildApproachCanvas(channels, lineups, currentSlots, nextSlots, o
     const canvas = createCanvas(W, totalH)
     const ctx    = canvas.getContext('2d')
     ctx.fillStyle = '#0a0a3a'; ctx.fillRect(0, 0, W, totalH)
-    drawTitle(ctx)
+    ctx.translate(SAFE_L, 0)
     drawTimeBar(ctx, HDR_H, currentSlots, tz)   // old time bar — PINNED
     drawGridLines(ctx, HDR_H, totalH - HDR_H)
     if (oldRowsH > 0 && channels.length > 0) {
@@ -238,15 +237,15 @@ async function buildApproachCanvas(channels, lineups, currentSlots, nextSlots, o
     return { base, rowsH, cycleH }
 }
 
-// Push canvas — pinnedH = HDR_H (30px). Only the title is pinned.
-// Scrolling content layout (relative to top of scroll area at y=30):
-//   [old time bar  22px]   ← at viewport top at t=0, exits above y=30 as video plays
-//   [new time bar  22px]   ← arrives at viewport top (y=30) when scroll = TIME_H
+// Push canvas — pinnedH = HDR_H (4px). Only the thin top strip is pinned.
+// Scrolling content layout (relative to top of scroll area at y=4):
+//   [old time bar  24px]   ← at viewport top at t=0, exits above y=4 as video plays
+//   [new time bar  24px]   ← arrives at viewport top (y=4) when scroll = TIME_H
 //   [new channel rows]
 //
-// Duration = TIME_H / SCROLL_PX_PER_SEC ≈ 0.58s. Both bars are visible
+// Duration = TIME_H / SCROLL_PX_PER_SEC ≈ 0.63s. Both bars are visible
 // simultaneously as the old one slides off and the new one slides into place.
-// The handoff to next.ts is seamless: new bar at y=30 in both the last push
+// The handoff to next.ts is seamless: new bar at y=4 in both the last push
 // frame (scroll viewport top) and the first next.ts frame (pinned area).
 async function buildPushCanvas(channels, lineups, currentSlots, nextSlots, tz, iconMap) {
     const windowNewStartMs = nextSlots[0].getTime()
@@ -260,7 +259,7 @@ async function buildPushCanvas(channels, lineups, currentSlots, nextSlots, tz, i
     const canvas = createCanvas(W, totalH)
     const ctx    = canvas.getContext('2d')
     ctx.fillStyle = '#0a0a3a'; ctx.fillRect(0, 0, W, totalH)
-    drawTitle(ctx)                                     // only pinned element
+    ctx.translate(SAFE_L, 0)
     drawGridLines(ctx, HDR_H, totalH - HDR_H)
     drawTimeBar(ctx, HDR_H,          currentSlots, tz) // old bar — exits top
     drawTimeBar(ctx, HDR_H + TIME_H, nextSlots,    tz) // new bar — slides into place
@@ -276,7 +275,7 @@ async function buildPushCanvas(channels, lineups, currentSlots, nextSlots, tz, i
 }
 
 // Encodes a PNG to MPEG-TS of exactly `duration` seconds.
-// pinnedH: pixels locked at top (HEADER_H=52 for normal/approach, HDR_H=30 for push).
+// pinnedH: pixels locked at top (HEADER_H=28 for normal/approach, HDR_H=4 for push).
 function encodeVideo({ pngPath, tsPath, rowsH, duration, pinnedH = HEADER_H, ffmpegPath, vEncoder, aEncoder }) {
     const visibleH    = H - pinnedH
     const scrollSpeed = (SCROLL_PX_PER_SEC / (FPS * rowsH)).toFixed(8)
@@ -366,7 +365,7 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             const pushDuration = TIME_H / SCROLL_PX_PER_SEC  // ≈ 0.578s, constant
 
             // ── Transition timing ─────────────────────────────────────────────────
-            // The full two-phase animation needs at least (VISIBLE_CH_H + TIME_H) / 38 ≈ 11.84s
+            // The full two-phase animation needs at least (VISIBLE_CH_H + TIME_H) / 38 ≈ 12.53s
             // from the switch point to the half-hour. Using Math.floor (not ceil) guarantees
             // the switch happens early enough that timeFromSwitchToHalf >= 11.84s, which in
             // turn guarantees the new time bar starts below the viewport.
