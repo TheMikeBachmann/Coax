@@ -324,7 +324,13 @@ module.exports = function guideChannelHandler(channelService, db, port) {
         const cleanup  = () => { for (const f of tmpFiles) { try { fs.unlinkSync(f) } catch {} } }
 
         try {
-            const now          = new Date()
+            // ?testIn=N fakes `now` to be N seconds before the next real half-hour,
+            // so the transition plays out quickly without waiting for a real rollover.
+            // Pass at least 15s to guarantee canAnimate=true and see the full push.
+            const realNow      = new Date()
+            const now          = req.query.testIn
+                ? new Date(getNextHalfHour(realNow, tz).getTime() - parseFloat(req.query.testIn) * 1000)
+                : realNow
             const nextHalfHour = getNextHalfHour(now, tz)
             const currentSlots = getSlotsAt(now, tz)
             const nextSlots    = getSlotsAt(nextHalfHour, tz)
