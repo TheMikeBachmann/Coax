@@ -89,6 +89,7 @@ function drawChannelRow(ctx, ch, lineups, y, windowStartMs, windowEndMs, iconMap
     ctx.fillRect(0, y, W, ROW_H)
     ctx.fillStyle = '#3344aa'
     ctx.fillRect(0, y + ROW_H - 1, W, 1)
+    ctx.fillRect(CH_COL, y, 1, ROW_H - 1)  // logo column right edge — always fixed
 
     const img = iconMap[ch.number]
     if (img) {
