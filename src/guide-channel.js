@@ -207,21 +207,33 @@ async function buildGuideCanvas(channels, lineups, now, tz, iconMap) {
     return { base, rowsH, cycleH }
 }
 
-// Builds the transition PNG. The scrolling rows section contains:
-//   - oldRowsH pixels of current-window channel rows (always a multiple of cycleH)
-//   - 22px new time bar (the "incoming" bar that will scroll into the header)
-//   - enough new-window channel rows to seamlessly loop into next.ts
+// Builds the transition PNG.
+//
+// For the animation to work — old time bar scrolling OFF the top, new one
+// scrolling IN from below — the old time bar must be part of the scrolling
+// content rather than pinned.  During the transition video we therefore pin
+// only the 30px title (HDR_H) and scroll everything below it (450px viewport).
+//
+// Scrolling content layout (Y offsets relative to top of scrolling area, i.e.
+// absolute Y = HDR_H + offset):
+//   [old time bar  22px]        ← first thing in scroll; exits top as it plays
+//   [old-window channel rows]   ← oldRowsH px (multiple of cycleH)
+//   [new time bar  22px]        ← scrolls in; arrives at top at the half-hour
+//   [new-window channel rows]   ← seamlessly loops into next.ts afterward
+//
+// pinnedH for this video is HDR_H (30), not HEADER_H (52).
 async function buildTransitionCanvas(channels, lineups, currentSlots, nextSlots, oldRowsH, tz, iconMap) {
     const windowOldStartMs = currentSlots[0].getTime()
     const windowOldEndMs   = windowOldStartMs + N_SLOTS * 30 * 60 * 1000
     const windowNewStartMs = nextSlots[0].getTime()
     const windowNewEndMs   = windowNewStartMs + N_SLOTS * 30 * 60 * 1000
 
-    const cycleH    = channels.length > 0 ? channels.length * ROW_H : VISIBLE_CH_H
-    const newReps   = Math.max(2, Math.ceil((VISIBLE_CH_H + cycleH) / cycleH) + 1)
-    const newRowsH  = newReps * cycleH
-    const totalRowsH = oldRowsH + TIME_H + newRowsH
-    const totalH    = HEADER_H + totalRowsH
+    const cycleH     = channels.length > 0 ? channels.length * ROW_H : VISIBLE_CH_H
+    const newReps    = Math.max(2, Math.ceil((VISIBLE_CH_H + cycleH) / cycleH) + 1)
+    const newRowsH   = newReps * cycleH
+    // Total scrollable height seen by the FFmpeg scroll filter (pinnedH = HDR_H = 30)
+    const totalRowsH = TIME_H + oldRowsH + TIME_H + newRowsH
+    const totalH     = HDR_H + totalRowsH
 
     const canvas = createCanvas(W, totalH)
     const ctx    = canvas.getContext('2d')
@@ -229,6 +241,7 @@ async function buildTransitionCanvas(channels, lineups, currentSlots, nextSlots,
     ctx.fillStyle = '#0a0a3a'
     ctx.fillRect(0, 0, W, totalH)
 
+    // Title bar — the only pinned element for this video
     ctx.fillStyle = '#1a1a6a'
     ctx.fillRect(0, 0, W, HDR_H)
     ctx.fillStyle = 'yellow'
@@ -237,24 +250,26 @@ async function buildTransitionCanvas(channels, lineups, currentSlots, nextSlots,
     ctx.textBaseline = 'middle'
     ctx.fillText('PROGRAM GUIDE', 8, HDR_H / 2)
 
-    // Pinned time bar (old labels — visible until the new bar scrolls in)
-    drawTimeBar(ctx, HDR_H, currentSlots, tz)
     drawGridLines(ctx, HDR_H, totalH - HDR_H)
 
-    // Old-window channel rows above the transition bar
+    // Old time bar: first item in scrolling content — scrolls off the top as the
+    // video plays, creating the "pushed out" effect.
+    drawTimeBar(ctx, HDR_H, currentSlots, tz)
+
+    // Old-window channel rows
     if (oldRowsH > 0 && channels.length > 0) {
-        drawChannelRows(ctx, channels, lineups, HEADER_H, oldRowsH, windowOldStartMs, windowOldEndMs, iconMap)
+        drawChannelRows(ctx, channels, lineups, HDR_H + TIME_H, oldRowsH,
+            windowOldStartMs, windowOldEndMs, iconMap)
     }
 
-    // Transition bar: the new time labels scroll in from below and push the old ones up
-    const newBarY = HEADER_H + oldRowsH
-    ctx.fillStyle = '#1a1a6a'
-    ctx.fillRect(0, newBarY, CH_COL, TIME_H)  // match left-column style of the title bar
+    // New time bar: scrolls in from below; reaches the top at the half-hour mark
+    const newBarY = HDR_H + TIME_H + oldRowsH
     drawTimeBar(ctx, newBarY, nextSlots, tz)
 
-    // New-window channel rows below the transition bar
+    // New-window channel rows
     if (channels.length > 0) {
-        drawChannelRows(ctx, channels, lineups, newBarY + TIME_H, newRowsH, windowNewStartMs, windowNewEndMs, iconMap)
+        drawChannelRows(ctx, channels, lineups, newBarY + TIME_H, newRowsH,
+            windowNewStartMs, windowNewEndMs, iconMap)
     }
 
     const pngBuf = canvas.toBuffer('image/png')
@@ -264,13 +279,15 @@ async function buildTransitionCanvas(channels, lineups, currentSlots, nextSlots,
 }
 
 // Encodes a guide PNG to an MPEG-TS file of exactly `duration` seconds.
+// pinnedH: pixels pinned at the top (default HEADER_H=52; transition uses HDR_H=30).
 // The scroll filter advances the rows area at SCROLL_PX_PER_SEC px/sec.
-function encodeVideo({ pngPath, tsPath, rowsH, duration, ffmpegPath, vEncoder, aEncoder }) {
+function encodeVideo({ pngPath, tsPath, rowsH, duration, pinnedH = HEADER_H, ffmpegPath, vEncoder, aEncoder }) {
+    const visibleH     = H - pinnedH
     const scrollSpeed  = (SCROLL_PX_PER_SEC / (FPS * rowsH)).toFixed(8)
     const filterGraph  = [
         `[0:v]split=2[a][b]`,
-        `[a]crop=${W}:${HEADER_H}:0:0[hdr]`,
-        `[b]crop=${W}:${rowsH}:0:${HEADER_H},scroll=v=${scrollSpeed}:h=0,crop=${W}:${VISIBLE_CH_H}:0:0[rows]`,
+        `[a]crop=${W}:${pinnedH}:0:0[hdr]`,
+        `[b]crop=${W}:${rowsH}:0:${pinnedH},scroll=v=${scrollSpeed}:h=0,crop=${W}:${visibleH}:0:0[rows]`,
         `[hdr][rows]vstack[out]`,
     ].join(';')
 
@@ -365,18 +382,22 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             // full-cycle boundary after (halfHour - travelTime). This guarantees
             // the scroll phase at the switch is always 0, so the transition video's
             // first frame matches the loop's last frame exactly.
-            const secUntilHalfHour       = (nextHalfHour.getTime() - now.getTime()) / 1000
-            const secUntilTransStart     = secUntilHalfHour - VISIBLE_CH_H / SCROLL_PX_PER_SEC
-            const numCurrentLoops        = Math.ceil(Math.max(0, secUntilTransStart) / loopDuration)
-            const timeFromSwitchToHalf   = secUntilHalfHour - numCurrentLoops * loopDuration
+            const secUntilHalfHour   = (nextHalfHour.getTime() - now.getTime()) / 1000
+            const secUntilTransStart = secUntilHalfHour - VISIBLE_CH_H / SCROLL_PX_PER_SEC
+            const numCurrentLoops    = Math.ceil(Math.max(0, secUntilTransStart) / loopDuration)
+            const timeFromSwitchToHalf = secUntilHalfHour - numCurrentLoops * loopDuration
 
-            // Old-rows section height: rounded UP to the next cycle boundary so that
-            // the transition bar arrives at or just after the actual half-hour.
-            const oldReps  = Math.max(0, Math.ceil(timeFromSwitchToHalf * SCROLL_PX_PER_SEC / cycleH))
-            const oldRowsH = oldReps * cycleH
-            // Duration of the transition video: scroll the old rows + the new time bar
-            // off the top, at which point the first frame of next.ts matches exactly.
-            const transitionDuration = (oldRowsH + TIME_H) / SCROLL_PX_PER_SEC
+            // The new time bar reaches the top of the scrolling viewport when:
+            //   (TIME_H + oldRowsH) / SCROLL_PX_PER_SEC = timeFromSwitchToHalf
+            //   oldRowsH = timeFromSwitchToHalf * SCROLL_PX_PER_SEC - TIME_H
+            // Round DOWN to the nearest cycle boundary so the bar arrives at or
+            // before the half-hour (the old code used ceil and arrived late).
+            const targetOldPx = Math.max(0, timeFromSwitchToHalf * SCROLL_PX_PER_SEC - TIME_H)
+            const oldReps     = Math.floor(targetOldPx / cycleH)
+            const oldRowsH    = oldReps * cycleH
+            // Transition ends when scroll position = TIME_H + oldRowsH (new time bar
+            // at top of viewport), which is exactly where next.ts starts.
+            const transitionDuration = (TIME_H + oldRowsH) / SCROLL_PX_PER_SEC
 
             // ── Build and encode all three video segments ────────────────────────
             const cur = await buildGuideCanvas(channels, lineups, now, tz, iconCache)
@@ -397,7 +418,8 @@ module.exports = function guideChannelHandler(channelService, db, port) {
                 tmpFiles.push(trn.base + '.png', trn.base + '.ts')
                 transTsPath = trn.base + '.ts'
                 await encodeVideo({ pngPath: trn.base + '.png', tsPath: transTsPath,
-                    rowsH: trn.rowsH, duration: transitionDuration, ffmpegPath, vEncoder, aEncoder })
+                    rowsH: trn.rowsH, duration: transitionDuration, pinnedH: HDR_H,
+                    ffmpegPath, vEncoder, aEncoder })
             }
 
             // ── Write concat playlist ────────────────────────────────────────────
