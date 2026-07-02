@@ -3,6 +3,90 @@ const constants = require("../constants");
 const  FALLBACK_ICON = "https://raw.githubusercontent.com/TheMikeBachmann/coax/main/resources/coax.png";
 const throttle = require('./throttle');
 
+// ── Per-show scheduling helpers ────────────────────────────────────────────
+
+function parseTimeMin(str) {
+    if (!str) return null;
+    const [hh, mm] = str.split(':').map(Number);
+    return hh * 60 + (mm || 0);
+}
+
+// Returns true when the program should be skipped at wall-clock time t (ms).
+// Uses server local time so the server's TZ setting controls the interpretation.
+function isShowBlocked(showSettings, program, t) {
+    if (!showSettings || !program || program.isOffline || !program.showTitle) return false;
+    const settings = showSettings[program.showTitle];
+    if (!settings) return false;
+
+    const date = new Date(t);
+    const day  = date.getDay(); // 0=Sun
+
+    if (Array.isArray(settings.allowedDays) && settings.allowedDays.length > 0) {
+        if (!settings.allowedDays.includes(day)) return true;
+    }
+
+    if (settings.allowedStart || settings.allowedEnd) {
+        const timeMin = date.getHours() * 60 + date.getMinutes();
+        const start = parseTimeMin(settings.allowedStart) ?? 0;
+        const end   = parseTimeMin(settings.allowedEnd)   ?? (23 * 60 + 59);
+        if (end < start) {
+            // overnight window (e.g. 22:00 – 02:00)
+            if (timeMin < start && timeMin > end) return true;
+        } else {
+            if (timeMin < start || timeMin > end) return true;
+        }
+    }
+
+    return false;
+}
+
+// For shows with forceOrder:true, replace the episode at nominalIndex with the
+// correct sequential episode determined by how far into the channel's runtime we are.
+// Duration is taken from the nominal slot so the schedule stays aligned.
+function getForceOrderedProgram(channel, nominalIndex, t) {
+    const program = channel.programs[nominalIndex];
+    if (!program?.showTitle || program.isOffline) return null;
+
+    const settings = channel.showSettings?.[program.showTitle];
+    if (!settings?.forceOrder) return null;
+
+    // Sorted unique episodes for this show
+    const seen = new Set();
+    const sortedEps = channel.programs
+        .filter(p => p.showTitle === program.showTitle && !p.isOffline)
+        .sort((a, b) => {
+            const ds = (a.season ?? 0) - (b.season ?? 0);
+            return ds !== 0 ? ds : (a.episode ?? 0) - (b.episode ?? 0);
+        })
+        .filter(p => {
+            const k = p.ratingKey ?? `${p.file ?? ''}.${p.season ?? 0}.${p.episode ?? 0}`;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        });
+
+    if (sortedEps.length === 0) return null;
+
+    // Positions of this show in the programs array
+    const showPositions = channel.programs.reduce((acc, p, i) => {
+        if (p.showTitle === program.showTitle && !p.isOffline) acc.push(i);
+        return acc;
+    }, []);
+
+    const posIdx = showPositions.indexOf(nominalIndex);
+    if (posIdx === -1) return null;
+
+    const totalDuration = channel.programs.reduce((s, p) => s + (p.duration || 0), 0);
+    if (totalDuration === 0) return null;
+
+    const elapsed     = Math.max(0, t - new Date(channel.startTime).getTime());
+    const cycleNumber = Math.floor(elapsed / totalDuration);
+    const globalOcc   = cycleNumber * showPositions.length + posIdx;
+    const epIdx       = globalOcc % sortedEps.length;
+
+    return { ...sortedEps[epIdx], duration: program.duration };
+}
+
 class TVGuideService extends events.EventEmitter
 {
     /****
@@ -194,7 +278,7 @@ class TVGuideService extends events.EventEmitter
             playing = await this.getCurrentPlayingIndex(channel, t);
         }
         if ( (playing.program == null) || (typeof(playing) === 'undefined') ) {
-            console.log("There is a weird issue with the TV guide generation. A placeholder program is placed to prevent further issues. Please report this.");
+            console.log("There is a weird issue with the TV guide generation. A placeholder program is placed to prevent further issues. Please report this."); // eslint-disable-line
             playing = {
                 index: -1,
                 program: {
@@ -204,6 +288,32 @@ class TVGuideService extends events.EventEmitter
                 start: t
             }
         }
+        // ── Per-show rules: time/day restriction + force order ────────────────
+        if (channel.showSettings && playing.index !== -1 && !playing.program.isOffline) {
+            if (isShowBlocked(channel.showSettings, playing.program, t)) {
+                // Skip forward through the cycle until a non-blocked program is found.
+                let attempts = 0;
+                let nextIdx  = playing.index;
+                while (attempts < channel.programs.length) {
+                    nextIdx = (nextIdx + 1) % channel.programs.length;
+                    const nextProg = channel.programs[nextIdx];
+                    if (!isShowBlocked(channel.showSettings, nextProg, t)) {
+                        playing = { index: nextIdx, program: nextProg, start: t };
+                        break;
+                    }
+                    attempts++;
+                }
+                if (attempts >= channel.programs.length) {
+                    return { index: -1, start: t, program: { isOffline: true, duration: 15 * 60 * 1000 } };
+                }
+            }
+            // Replace episode with the correct sequential one for force-ordered shows.
+            const forced = getForceOrderedProgram(channel, playing.index, t);
+            if (forced) {
+                playing = { ...playing, program: forced };
+            }
+        }
+
         if ( playing.program.isOffline && playing.program.type === 'redirect') {
             let ch2 = playing.program.channel;
             

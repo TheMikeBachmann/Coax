@@ -20,7 +20,7 @@ import { useToast } from '../Toast'
 import PlexLibrary from './PlexLibrary'
 import TimeSlotsEditor from './TimeSlotsEditor'
 import RandomSlotsEditor from './RandomSlotsEditor'
-import type { Channel, Program, FillerInfo, Watermark, FillerCollection } from '../../types'
+import type { Channel, Program, FillerInfo, Watermark, FillerCollection, ShowSetting } from '../../types'
 import { RESOLUTION_OPTIONS } from '../../types'
 import { coax } from '../../api/coax'
 
@@ -645,8 +645,10 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
 
       {showLibrary && <PlexLibrary
         programs={ch.programs}
+        showSettings={ch.showSettings ?? {}}
         onAdd={progs => { addPrograms(progs); setShowLibrary(false) }}
         onRemoveWhere={removeWhere}
+        onUpdateShowSettings={(s: Record<string, ShowSetting>) => update({ showSettings: s })}
         onClear={() => update({ programs: [] })}
         onClose={() => setShowLibrary(false)}
       />}

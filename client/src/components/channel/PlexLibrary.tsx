@@ -1,15 +1,17 @@
 import { useEffect, useState, useCallback } from 'react'
-import { X, Search, Plus, ChevronRight, ArrowLeft, Loader2, ChevronsRight, Trash2 } from 'lucide-react'
+import { X, Search, Plus, ChevronRight, ArrowLeft, Loader2, ChevronsRight, Trash2, Settings } from 'lucide-react'
 import { coax } from '../../api/coax'
 import { plexApi } from '../../api/plex'
 import type { PlexMeta } from '../../api/plex'
 import { useToast } from '../Toast'
-import type { PlexServer, PlexLibrarySection, Program, CustomShowInfo } from '../../types'
+import type { PlexServer, PlexLibrarySection, Program, CustomShowInfo, ShowSetting } from '../../types'
 
 interface Props {
   programs?: Program[]
+  showSettings?: Record<string, ShowSetting>
   onAdd: (programs: Program[]) => void
   onRemoveWhere?: (pred: (p: Program) => boolean) => void
+  onUpdateShowSettings?: (settings: Record<string, ShowSetting>) => void
   onClear?: () => void
   onClose: () => void
 }
@@ -82,7 +84,7 @@ function itemIcon(server: PlexServer, meta: PlexMeta): string | undefined {
   return thumb ? `${server.uri}${thumb}?X-Plex-Token=${server.accessToken}` : undefined
 }
 
-export default function PlexLibrary({ programs = [], onAdd, onRemoveWhere, onClear, onClose }: Props) {
+export default function PlexLibrary({ programs = [], showSettings = {}, onAdd, onRemoveWhere, onUpdateShowSettings, onClear, onClose }: Props) {
   const { addToast } = useToast()
   const [tab, setTab] = useState<'browse' | 'manage'>('browse')
   const [manageView, setManageView] = useState<ManageView>({ type: 'top' })
@@ -100,6 +102,18 @@ export default function PlexLibrary({ programs = [], onAdd, onRemoveWhere, onCle
 
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<Map<string, PlexMeta>>(new Map())
+  const [settingsOpenFor, setSettingsOpenFor] = useState<string | null>(null)
+
+  const updateShowSetting = (title: string, setting: ShowSetting) => {
+    const isEmpty = !setting.allowedDays && !setting.allowedStart && !setting.allowedEnd && !setting.forceOrder
+    if (isEmpty) {
+      const next = { ...showSettings }
+      delete next[title]
+      onUpdateShowSettings?.(next)
+    } else {
+      onUpdateShowSettings?.({ ...showSettings, [title]: setting })
+    }
+  }
 
   useEffect(() => {
     Promise.all([coax.getPlexServers(), coax.getAllShowsInfo()]).then(([srvs, shws]) => {
@@ -368,24 +382,106 @@ export default function PlexLibrary({ programs = [], onAdd, onRemoveWhere, onCle
                         <div className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-900/30">Shows</div>
                       )}
                       {Array.from(manageShowMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([showTitle, eps]) => {
-                        const uniqueCount = new Set(eps.map(epKey)).size
+                        const uniqueCount    = new Set(eps.map(epKey)).size
+                        const showSetting    = showSettings[showTitle]
+                        const isOpen         = settingsOpenFor === showTitle
+                        const hasSettings    = !!(showSetting?.allowedDays || showSetting?.allowedStart || showSetting?.allowedEnd || showSetting?.forceOrder)
+                        const hasTimeR       = !!(showSetting?.allowedStart || showSetting?.allowedEnd)
+                        const allowedDays    = showSetting?.allowedDays
+                        const DAY_LABELS     = ['Su','Mo','Tu','We','Th','Fr','Sa']
                         return (
-                          <div key={showTitle} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-700/50 hover:bg-gray-700/30 group">
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm text-gray-100 truncate">{showTitle}</div>
-                              <div className="text-xs text-gray-500">{uniqueCount} episode{uniqueCount !== 1 ? 's' : ''}</div>
+                          <div key={showTitle}>
+                            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-700/50 hover:bg-gray-700/30 group">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm text-gray-100 truncate">{showTitle}</div>
+                                <div className="text-xs text-gray-500">{uniqueCount} episode{uniqueCount !== 1 ? 's' : ''}</div>
+                              </div>
+                              <button
+                                onClick={() => setSettingsOpenFor(isOpen ? null : showTitle)}
+                                className={`p-1.5 shrink-0 ${isOpen || hasSettings ? 'text-blue-400' : 'text-gray-400 opacity-0 group-hover:opacity-100 hover:text-blue-300'}`}
+                                title="Show settings">
+                                <Settings size={14} />
+                              </button>
+                              <button
+                                onClick={() => onRemoveWhere(p => p.showTitle === showTitle && p.type === 'episode')}
+                                className="p-1.5 text-red-400 opacity-0 group-hover:opacity-100 hover:text-red-300 shrink-0"
+                                title="Remove all episodes">
+                                <Trash2 size={14} />
+                              </button>
+                              <button
+                                onClick={() => setManageView({ type: 'show', showTitle })}
+                                className="p-1.5 text-gray-400 hover:text-white shrink-0">
+                                <ChevronRight size={16} />
+                              </button>
                             </div>
-                            <button
-                              onClick={() => onRemoveWhere(p => p.showTitle === showTitle && p.type === 'episode')}
-                              className="p-1.5 text-red-400 opacity-0 group-hover:opacity-100 hover:text-red-300 shrink-0"
-                              title="Remove all episodes">
-                              <Trash2 size={14} />
-                            </button>
-                            <button
-                              onClick={() => setManageView({ type: 'show', showTitle })}
-                              className="p-1.5 text-gray-400 hover:text-white shrink-0">
-                              <ChevronRight size={16} />
-                            </button>
+                            {isOpen && (
+                              <div className="px-6 py-3 bg-gray-900/50 border-b border-gray-700/50 space-y-2.5">
+                                {/* Days of week */}
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs text-gray-500 w-10 shrink-0">Days</span>
+                                  <div className="flex gap-2">
+                                    {DAY_LABELS.map((label, i) => {
+                                      const checked = !allowedDays || allowedDays.includes(i)
+                                      return (
+                                        <label key={i} className="flex flex-col items-center gap-0.5 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={() => {
+                                              const current = allowedDays ?? [0,1,2,3,4,5,6]
+                                              if (checked && current.length === 1) return
+                                              const next = checked ? current.filter(d => d !== i) : [...current, i].sort((a,b) => a-b)
+                                              updateShowSetting(showTitle, { ...showSetting, allowedDays: next.length === 7 ? undefined : next })
+                                            }}
+                                          />
+                                          <span className="text-xs text-gray-400">{label}</span>
+                                        </label>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                                {/* Time window */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={hasTimeR}
+                                      onChange={e => {
+                                        if (e.target.checked) {
+                                          updateShowSetting(showTitle, { ...showSetting, allowedStart: '20:00', allowedEnd: '23:59' })
+                                        } else {
+                                          const next = { ...showSetting }; delete next.allowedStart; delete next.allowedEnd
+                                          updateShowSetting(showTitle, next)
+                                        }
+                                      }}
+                                    />
+                                    <span className="text-xs text-gray-400">Restrict to hours</span>
+                                  </label>
+                                  {hasTimeR && (
+                                    <>
+                                      <input type="time"
+                                        value={showSetting?.allowedStart ?? '20:00'}
+                                        onChange={e => updateShowSetting(showTitle, { ...showSetting, allowedStart: e.target.value })}
+                                        className="bg-gray-700 border border-gray-600 text-white rounded px-1.5 py-0.5 text-xs w-28" />
+                                      <span className="text-xs text-gray-500">to</span>
+                                      <input type="time"
+                                        value={showSetting?.allowedEnd ?? '23:59'}
+                                        onChange={e => updateShowSetting(showTitle, { ...showSetting, allowedEnd: e.target.value })}
+                                        className="bg-gray-700 border border-gray-600 text-white rounded px-1.5 py-0.5 text-xs w-28" />
+                                    </>
+                                  )}
+                                </div>
+                                {/* Force order */}
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!showSetting?.forceOrder}
+                                    onChange={e => updateShowSetting(showTitle, { ...showSetting, forceOrder: e.target.checked || undefined })}
+                                  />
+                                  <span className="text-xs text-gray-400">Always play episodes in order</span>
+                                </label>
+                              </div>
+                            )}
                           </div>
                         )
                       })}

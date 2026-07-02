@@ -53,6 +53,13 @@ export interface OnDemandSettings {
   modulo: number
 }
 
+export interface ShowSetting {
+  allowedDays?: number[]   // 0=Sun … 6=Sat; omitted means any day
+  allowedStart?: string    // "HH:MM" 24 h; omitted means no time restriction
+  allowedEnd?: string      // "HH:MM" 24 h
+  forceOrder?: boolean     // always play episodes in season/episode order
+}
+
 export interface Channel {
   number: number
   name: string
@@ -77,6 +84,7 @@ export interface Channel {
   iconDuration?: number
   iconPosition?: string
   duration?: number
+  showSettings?: Record<string, ShowSetting>
 }
 
 export interface ChannelDescription {
