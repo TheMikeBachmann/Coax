@@ -188,7 +188,7 @@ async function buildGuideCanvas(channels, lineups, now, tz, iconMap) {
     const ctx    = canvas.getContext('2d')
     ctx.fillStyle = '#0a0a3a'; ctx.fillRect(0, 0, W, totalH)
     ctx.translate(SAFE_L, 0)
-    drawTimeBar(ctx, HDR_H, slots, tz, hhmm(slots[0], tz))
+    drawTimeBar(ctx, HDR_H, slots, tz)
     drawGridLines(ctx, HDR_H, totalH - HDR_H)
     if (channels.length > 0) {
         drawChannelRows(ctx, channels, lineups, HEADER_H, rowsH, windowStartMs, windowEndMs, iconMap)
@@ -422,11 +422,35 @@ module.exports = function guideChannelHandler(channelService, db, port) {
             for (let i = 0; i < 500; i++) lines.push(`file '${nxt.base}.ts'`)
             fs.writeFileSync(playlistPath, lines.join('\n'))
 
-            // ── Stream (still -c copy, near-zero CPU) ─────────────────────────────
+            // ── Stream with live clock overlay ────────────────────────────────────
+            // drawtext overlays the real wall-clock time onto the clock cell
+            // (top-left above channel logos). The concat demuxer keeps PTS monotonic
+            // across looped segments, so epoch+pts tracks actual wall time precisely.
+            // Re-encoding at ultrafast is ~5% CPU vs <1% for -c copy, but is the
+            // only way to draw a live clock onto pre-encoded video.
+            const epoch = Math.floor(Date.now() / 1000)
+            const cx    = SAFE_L + Math.floor(CH_COL / 2)  // cell center x = 68
+            const cy    = HDR_H  + Math.floor(TIME_H / 2)  // cell center y = 42
+            // Escape colons with \: inside the %{pts:localtime:...} expansion so
+            // ffmpeg's filter parser does not split on them as option separators.
+            // Only the three separator colons (between pts/localtime/epoch/format) need \:
+            // escaping; the colon inside the strftime format (%I:%M) must be literal or
+            // the expansion parser splits on it and drops the minutes.
+            const clockText = `%{pts\\:localtime\\:${epoch}\\:%I:%M %p}`
+            const vFilter = [
+                `drawbox=x=${SAFE_L}:y=${HDR_H}:w=${CH_COL}:h=${TIME_H}:color=0x0a0a50:t=fill`,
+                `drawtext=fontfamily=Monospace:fontsize=12:fontcolor=white:x=${cx}-tw/2:y=${cy}-th/2:text='${clockText}'`,
+            ].join(',')
+
             const ff = spawn(ffmpegPath, [
                 '-re', '-f', 'concat', '-safe', '0', '-i', playlistPath,
-                '-c', 'copy', '-f', 'mpegts', 'pipe:1',
-            ], { stdio: ['pipe', 'pipe', 'pipe'] })
+                '-vf', vFilter,
+                '-c:v', vEncoder, '-preset', 'ultrafast',
+                ...(vEncoder === 'libx264' ? ['-tune', 'zerolatency'] : []),
+                '-g', String(FPS), '-maxrate', '2000k', '-bufsize', '4000k',
+                '-c:a', aEncoder,
+                '-f', 'mpegts', 'pipe:1',
+            ], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, TZ: tz } })
 
             ff.stdout.pipe(res, { end: false })
             let stderrBuf = ''
