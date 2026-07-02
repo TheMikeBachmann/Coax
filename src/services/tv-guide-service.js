@@ -2,43 +2,7 @@ const events = require('events')
 const constants = require("../constants");
 const  FALLBACK_ICON = "https://raw.githubusercontent.com/TheMikeBachmann/coax/main/resources/coax.png";
 const throttle = require('./throttle');
-
-// ── Per-show scheduling helpers ────────────────────────────────────────────
-
-function parseTimeMin(str) {
-    if (!str) return null;
-    const [hh, mm] = str.split(':').map(Number);
-    return hh * 60 + (mm || 0);
-}
-
-// Returns true when the program should be skipped at wall-clock time t (ms).
-// Uses server local time so the server's TZ setting controls the interpretation.
-function isShowBlocked(showSettings, program, t) {
-    if (!showSettings || !program || program.isOffline || !program.showTitle) return false;
-    const settings = showSettings[program.showTitle];
-    if (!settings) return false;
-
-    const date = new Date(t);
-    const day  = date.getDay(); // 0=Sun
-
-    if (Array.isArray(settings.allowedDays) && settings.allowedDays.length > 0) {
-        if (!settings.allowedDays.includes(day)) return true;
-    }
-
-    if (settings.allowedStart || settings.allowedEnd) {
-        const timeMin = date.getHours() * 60 + date.getMinutes();
-        const start = parseTimeMin(settings.allowedStart) ?? 0;
-        const end   = parseTimeMin(settings.allowedEnd)   ?? (23 * 60 + 59);
-        if (end < start) {
-            // overnight window (e.g. 22:00 – 02:00)
-            if (timeMin < start && timeMin > end) return true;
-        } else {
-            if (timeMin < start || timeMin > end) return true;
-        }
-    }
-
-    return false;
-}
+const { isShowBlocked } = require('./show-settings-helpers');
 
 // For shows with forceOrder:true, replace the episode at nominalIndex with the
 // correct sequential episode determined by how far into the channel's runtime we are.

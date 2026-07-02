@@ -97,4 +97,6 @@ export const coax = {
     api<unknown[]>('/api/channel-tools/time-slots', json('POST', { programs, schedule })),
   calculateRandomSlots: (programs: unknown[], schedule: unknown) =>
     api<unknown[]>('/api/channel-tools/random-slots', json('POST', { programs, schedule })),
+  buildSettingsSchedule: (programs: unknown[], showSettings: unknown, daysToGenerate?: number) =>
+    api<{ programs: unknown[]; startTime: string }>('/api/channel-tools/settings-schedule', json('POST', { programs, showSettings, daysToGenerate })),
 }

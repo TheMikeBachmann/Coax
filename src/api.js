@@ -10,6 +10,7 @@ const Plex = require("./plex.js");
 
 const timeSlotsService = require('./services/time-slots-service');
 const randomSlotsService = require('./services/random-slots-service');
+const settingsScheduleService = require('./services/settings-schedule-service');
 const throttle = require('./services/throttle');
 
 function safeString(object) {
@@ -1007,7 +1008,21 @@ function api(db, channelService, fillerDB, customShowDB, xmltvInterval,  guideSe
       }
     });
 
-    // CHANNELS.M3U Download 
+    router.post('/api/channel-tools/settings-schedule', async (req, res) => {
+      try {
+        const { programs, showSettings, daysToGenerate } = req.body;
+        if (!Array.isArray(programs)) {
+          return res.status(400).send('Expected a programs array');
+        }
+        const toolRes = await settingsScheduleService(programs, showSettings ?? {}, daysToGenerate ?? 14);
+        await streamToolResult(toolRes, res);
+      } catch(err) {
+        console.error(err);
+        res.status(500).send("Internal error");
+      }
+    });
+
+    // CHANNELS.M3U Download
     router.get('/api/channels.m3u', async (req, res) => {
       try {
         res.type('text');

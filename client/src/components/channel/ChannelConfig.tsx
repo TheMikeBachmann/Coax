@@ -7,7 +7,7 @@ import {
   useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { X, Plus, Trash2, GripVertical, Shuffle, Copy, Tv, Clock, Sliders, Settings, Film, Tv2, AlignCenter, Upload, Loader2 } from 'lucide-react'
+import { X, Plus, Trash2, GripVertical, Shuffle, Copy, Tv, Clock, Sliders, Settings, Film, Tv2, AlignCenter, Upload, Loader2, CalendarDays } from 'lucide-react'
 
 const ALIGNMENT_OPTIONS = [
   { value: 0, label: 'Off' },
@@ -130,6 +130,7 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
   const [showLibrary, setShowLibrary] = useState(false)
   const [showTimeSlots, setShowTimeSlots] = useState(false)
   const [showRandomSlots, setShowRandomSlots] = useState(false)
+  const [buildingSchedule, setBuildingSchedule] = useState(false)
   const [padBoundary, setPadBoundary] = useState(ch.padBoundary ?? 0)
   const [uploadingIcon, setUploadingIcon] = useState(false)
   const iconInputRef = useRef<HTMLInputElement>(null)
@@ -272,6 +273,25 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
     setFillerLoaded(true)
   }
 
+  const buildSchedule = async () => {
+    if (ch.programs.length === 0) { addToast('Add some content first', 'error'); return }
+    if (!ch.showSettings || Object.keys(ch.showSettings).length === 0) {
+      addToast('Configure show settings first (open Content and click the gear icon on a show)', 'error')
+      return
+    }
+    setBuildingSchedule(true)
+    try {
+      const result = await coax.buildSettingsSchedule(ch.programs, ch.showSettings, 14)
+      if (result?.programs) {
+        update({ programs: result.programs as Program[], startTime: result.startTime })
+        addToast(`Schedule built — ${result.programs.length} items over 14 days`, 'success')
+      }
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to build schedule', 'error')
+    }
+    setBuildingSchedule(false)
+  }
+
   const save = async () => {
     if (!ch.name.trim()) { addToast('Channel name is required', 'error'); return }
     if (!Number.isInteger(ch.number) || ch.number < 1) { addToast('Channel number must be a positive integer', 'error'); return }
@@ -342,6 +362,15 @@ export default function ChannelConfig({ channel: initialChannel, channels, onSav
                   </button>
                   <button onClick={() => setShowRandomSlots(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-sm">
                     <Shuffle size={14} /> Random
+                  </button>
+                  <button
+                    onClick={buildSchedule}
+                    disabled={buildingSchedule}
+                    title="Generate a 14-day schedule from per-show settings (days/hours/order)"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 border border-indigo-500 rounded text-sm disabled:opacity-50"
+                  >
+                    {buildingSchedule ? <Loader2 size={14} className="animate-spin" /> : <CalendarDays size={14} />}
+                    {buildingSchedule ? 'Building…' : 'Build Schedule'}
                   </button>
                   <button onClick={shuffle} className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-sm">
                     <Shuffle size={14} /> Shuffle
